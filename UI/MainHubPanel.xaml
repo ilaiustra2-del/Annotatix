@@ -90,7 +90,7 @@
                                     Background="#E0E0E0" 
                                     CornerRadius="12"
                                     Padding="15">
-                                <Image Source="pack://application:,,,/UI/icons/dwg2rvt80.png" 
+                                <Image Source="/UI/icons/dwg2rvt80.png" 
                                        Stretch="Uniform"
                                        RenderOptions.BitmapScalingMode="HighQuality"/>
                             </Border>

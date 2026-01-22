@@ -44,9 +44,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="UI\icons\dwg2rvt.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <Resource Include="UI\icons\dwg2rvt.png" />
+    <Resource Include="UI\icons\dwg2rvt32.png" />
+    <Resource Include="UI\icons\dwg2rvt80.png" />
   </ItemGroup>
 
   <ItemGroup>
