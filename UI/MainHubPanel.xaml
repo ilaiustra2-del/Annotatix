@@ -90,8 +90,9 @@
                                     Background="#E0E0E0" 
                                     CornerRadius="12"
                                     Padding="15">
-                                <Image Source="C:\Users\Свеж как огурец\Desktop\Эксперимент Annotatix\dwg2rvt\UI\icons\dwg2rvt.png" 
-                                       Stretch="Uniform"/>
+                                <Image Source="pack://application:,,,/UI/icons/dwg2rvt80.png" 
+                                       Stretch="Uniform"
+                                       RenderOptions.BitmapScalingMode="HighQuality"/>
                             </Border>
                             <TextBlock Text="DWG2RVT" 
                                        FontSize="11" 
