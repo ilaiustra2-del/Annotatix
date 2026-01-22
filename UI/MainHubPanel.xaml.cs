@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using Autodesk.Revit.UI;
 
 namespace dwg2rvt.UI
@@ -22,6 +23,35 @@ namespace dwg2rvt.UI
             _placeElementsEvent = placeElementsEvent;
             _placeSingleBlockTypeEvent = placeSingleBlockTypeEvent;
             _hubContent = MainContent.Content;
+            
+            // Load icon from assembly location
+            try
+            {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var assemblyPath = Path.GetDirectoryName(assembly.Location);
+                var iconPath = Path.Combine(assemblyPath, "UI", "icons", "dwg2rvt80.png");
+                
+                System.Diagnostics.Debug.WriteLine($"[HUB] Looking for icon at: {iconPath}");
+                
+                if (File.Exists(iconPath))
+                {
+                    var bitmap = new BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.UriSource = new Uri(iconPath, UriKind.Absolute);
+                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmap.EndInit();
+                    imgDwg2rvtIcon.Source = bitmap;
+                    System.Diagnostics.Debug.WriteLine("[HUB] Icon loaded successfully");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[HUB] Icon file not found: {iconPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading icon: {ex.Message}");
+            }
             
             // Set version number from BuildNumber.txt or assembly
             try

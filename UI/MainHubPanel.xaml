@@ -90,7 +90,7 @@
                                     Background="#E0E0E0" 
                                     CornerRadius="12"
                                     Padding="15">
-                                <Image Source="/UI/icons/dwg2rvt80.png" 
+                                <Image x:Name="imgDwg2rvtIcon"
                                        Stretch="Uniform"
                                        RenderOptions.BitmapScalingMode="HighQuality"/>
                             </Border>
