@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
@@ -87,10 +89,19 @@ namespace dwg2rvt.UI
 
         private void Dwg2rvt_Click(object sender, MouseButtonEventArgs e)
         {
+            // Check if button is enabled
+            if (!pnlDwg2rvt.IsEnabled)
+            {
+                System.Diagnostics.Debug.WriteLine("[HUB] DWG2RVT button is disabled");
+                MessageBox.Show("Модуль DWG2RVT недоступен. Пожалуйста, войдите в учётную запись.", 
+                    "Доступ запрещён", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            
             try
             {
                 // Switch to dwg2rvt panel
-                txtTitle.Text = "dwg2rvt - Анализ DWG";
+                txtTitle.Text = "DWG2RVT";
                 var panel = new dwg2rvtPanel(_uiApp, _annotateEvent, _placeElementsEvent, _placeSingleBlockTypeEvent);
                 
                 // Link panel to handler via OpenHubCommand (which has static reference)
@@ -105,6 +116,36 @@ namespace dwg2rvt.UI
             catch (Exception ex)
             {
                 MessageBox.Show($"Ошибка при загрузке панели dwg2rvt:\n{ex.Message}\n\n{ex.StackTrace}", 
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void HVAC_Click(object sender, MouseButtonEventArgs e)
+        {
+            // Check if button is enabled
+            if (!pnlHVAC.IsEnabled)
+            {
+                System.Diagnostics.Debug.WriteLine("[HUB] HVAC button is disabled");
+                MessageBox.Show("Модуль HVAC недоступен. Пожалуйста, войдите в учётную запись.", 
+                    "Доступ запрещён", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            
+            try
+            {
+                // Switch to HVAC panel
+                txtTitle.Text = "HVAC";
+                var hvacPanel = new HVACPanel();
+                
+                MainContent.Content = hvacPanel;
+                btnBack.Visibility = Visibility.Visible;
+                
+                // Hide Right Sidebar when HVAC panel is open
+                RightSidebar.Visibility = Visibility.Collapsed;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при загрузке панели HVAC:\n{ex.Message}\n\n{ex.StackTrace}", 
                     "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -144,13 +185,35 @@ namespace dwg2rvt.UI
                         btnAuth.Content = $"Вы вошли: {currentUser.Login}";
                         btnAuth.IsEnabled = false;
                         
-                        // Show user status in bottom right
-                        txtUserStatus.Text = $"Пользователь: {currentUser.Login}";
+                        // Show user status with active modules in bottom right
+                        var activeModules = currentUser.Modules?.Where(m => m.IsActive).ToList();
+                        string modulesText = "";
+                        if (activeModules != null && activeModules.Count > 0)
+                        {
+                            var moduleDetails = activeModules.Select(m => 
+                                $"{m.ModuleTag} (до {m.EndDate:dd.MM.yyyy})").ToList();
+                            modulesText = $"\nМодули: {string.Join(", ", moduleDetails)}";
+                        }
+                        else
+                        {
+                            modulesText = "\nМодули: нет активных";
+                        }
+                        
+                        txtUserStatus.Text = $"Пользователь: {currentUser.Login}{modulesText}";
                         txtUserStatus.Visibility = Visibility.Visible;
                         
-                        // Show success notification
-                        MessageBox.Show($"Добро пожаловать!\nТариф: {currentUser.SubscriptionPlan}", 
-                            "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
+                        // Activate module buttons based on user's modules
+                        ActivateModuleButtons(currentUser.Modules);
+                        
+                        // Show success notification (without subscription plan)
+                        string welcomeMsg = "Добро пожаловать!";
+                        if (activeModules != null && activeModules.Count > 0)
+                        {
+                            var moduleInfo = activeModules.Select(m => 
+                                $"{m.ModuleTag} (активен до {m.EndDate:dd.MM.yyyy})").ToList();
+                            welcomeMsg += $"\nАктивные модули:\n{string.Join("\n", moduleInfo)}";
+                        }
+                        MessageBox.Show(welcomeMsg, "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
                     else
                     {
@@ -171,6 +234,57 @@ namespace dwg2rvt.UI
                 
                 MessageBox.Show($"Ошибка на стороне плагина:\n{ex.Message}\n\nТип: {ex.GetType().Name}", 
                     "Ошибка плагина", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        /// <summary>
+        /// Activate module buttons based on user's active modules
+        /// </summary>
+        private void ActivateModuleButtons(List<Core.UserModule> modules)
+        {
+            if (modules == null || modules.Count == 0)
+            {
+                System.Diagnostics.Debug.WriteLine("[HUB] No modules to activate");
+                return;
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"[HUB] Activating modules: {modules.Count}");
+            
+            foreach (var module in modules)
+            {
+                if (!module.IsActive)
+                    continue;
+                
+                string moduleTag = module.ModuleTag.ToLower();
+                System.Diagnostics.Debug.WriteLine($"[HUB] Activating module: {moduleTag}");
+                
+                switch (moduleTag)
+                {
+                    case "dwg2rvt":
+                        pnlDwg2rvt.IsEnabled = true;
+                        pnlDwg2rvt.Opacity = 1.0;
+                        System.Diagnostics.Debug.WriteLine("[HUB] DWG2RVT module activated");
+                        break;
+                        
+                    case "hvac":
+                        pnlHVAC.IsEnabled = true;
+                        pnlHVAC.Opacity = 1.0;
+                        System.Diagnostics.Debug.WriteLine("[HUB] HVAC module activated");
+                        break;
+                        
+                    case "full":
+                        // Activate all modules
+                        pnlDwg2rvt.IsEnabled = true;
+                        pnlDwg2rvt.Opacity = 1.0;
+                        pnlHVAC.IsEnabled = true;
+                        pnlHVAC.Opacity = 1.0;
+                        System.Diagnostics.Debug.WriteLine("[HUB] All modules activated (full access)");
+                        break;
+                        
+                    default:
+                        System.Diagnostics.Debug.WriteLine($"[HUB] Unknown module: {moduleTag}");
+                        break;
+                }
             }
         }
     }

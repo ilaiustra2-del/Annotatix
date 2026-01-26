@@ -1,9 +1,13 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using BCrypt.Net;
 
 namespace dwg2rvt.Core
 {
@@ -47,10 +51,9 @@ namespace dwg2rvt.Core
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Starting authentication for: {login}");
                 
                 // Build Supabase REST API query
-                // Table: verification_test
-                // First query: SELECT * FROM verification_test WHERE login = ?
-                // We'll check password in code for better error messages
-                string query = $"{SUPABASE_URL}/rest/v1/verification_test?login=eq.{Uri.EscapeDataString(login)}";
+                // Query kv_store table for key = "user_data:{user_id}" where login matches
+                // We need to search all user_data keys and parse their JSON values
+                string query = $"{SUPABASE_URL}/rest/v1/kv_store_19422568?key=like.user_data:*";
                 
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Request URL: {query}");
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Sending HTTP GET request...");
@@ -75,11 +78,31 @@ namespace dwg2rvt.Core
                 string jsonResponse = await response.Content.ReadAsStringAsync();
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Response body: {jsonResponse}");
                 
-                var users = JArray.Parse(jsonResponse);
-                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Users found: {users.Count}");
+                var records = JArray.Parse(jsonResponse);
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Records found: {records.Count}");
+                
+                // Find user by login in the JSON values
+                JObject userData = null;
+                string userId = null;
+                
+                foreach (var record in records)
+                {
+                    string key = record["key"]?.ToString();
+                    var value = JObject.Parse(record["value"]?.ToString() ?? "{}");
+                    string userLogin = value["login"]?.ToString();
+                    
+                    if (userLogin != null && userLogin.Equals(login, StringComparison.OrdinalIgnoreCase))
+                    {
+                        userData = value;
+                        // Extract user_id from key: "user_data:30cf2909-73e9-4ae7-a3a0-f2e06d2a0a68"
+                        userId = key?.Replace("user_data:", "");
+                        System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] User found with key: {key}");
+                        break;
+                    }
+                }
                 
                 // Check if user exists by login
-                if (users.Count == 0)
+                if (userData == null)
                 {
                     System.Diagnostics.Debug.WriteLine("[AUTH-SERVICE] User not found - login doesn't exist");
                     return new AuthResult 
@@ -90,34 +113,84 @@ namespace dwg2rvt.Core
                 }
                 
                 // Get user data
-                var user = users[0];
-                string storedPassword = user["password"]?.ToString();
+                string storedPasswordHash = userData["password"]?.ToString();
                 
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] User found, checking password...");
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Stored hash: {storedPasswordHash}");
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Input password length: {password?.Length}");
                 
-                // Check password
-                if (storedPassword != password)
+                // Check password - support both SHA-256 and BCrypt
+                bool isPasswordValid = false;
+                
+                // Detect hash type by format
+                if (storedPasswordHash != null && storedPasswordHash.Length == 64 && IsHexString(storedPasswordHash))
+                {
+                    // SHA-256 hash (64 hex characters)
+                    System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Detected SHA-256 hash");
+                    string inputPasswordHash = ComputeSha256Hash(password);
+                    System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Computed hash: {inputPasswordHash}");
+                    isPasswordValid = storedPasswordHash.Equals(inputPasswordHash, StringComparison.OrdinalIgnoreCase);
+                    System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] SHA-256 result: {isPasswordValid}");
+                }
+                else if (storedPasswordHash != null && storedPasswordHash.StartsWith("$2"))
+                {
+                    // BCrypt hash
+                    System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Detected BCrypt hash");
+                    try
+                    {
+                        isPasswordValid = BCrypt.Net.BCrypt.Verify(password, storedPasswordHash);
+                        System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] BCrypt result: {isPasswordValid}");
+                    }
+                    catch (Exception bcryptEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] BCrypt error: {bcryptEx.Message}");
+                    }
+                }
+                else
+                {
+                    // Plain text or unknown format
+                    System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Unknown hash format, trying plain text");
+                    isPasswordValid = (storedPasswordHash == password);
+                }
+                
+                if (!isPasswordValid)
                 {
                     System.Diagnostics.Debug.WriteLine("[AUTH-SERVICE] Password mismatch");
+                    
+                    // Provide more detailed error for debugging
+                    string errorDetails = "Неверный пароль";
+                    if (storedPasswordHash != null && storedPasswordHash.StartsWith("$2"))
+                    {
+                        errorDetails += " (BCrypt hash detected)";
+                    }
+                    else if (storedPasswordHash != null)
+                    {
+                        errorDetails += $" (Hash type: unknown, length: {storedPasswordHash.Length})";
+                    }
+                    
                     return new AuthResult 
                     { 
                         IsSuccess = false, 
-                        ErrorMessage = "Неверный пароль" 
+                        ErrorMessage = errorDetails
                     };
                 }
                 
                 // Success - get user info
-                string userId = user["user_id"]?.ToString();
-                string sPlan = user["s_plan"]?.ToString() ?? "free";
+                // No subscription plan field in DB yet
                 
-                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] SUCCESS - UserID: {userId}, Plan: {sPlan}");
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] SUCCESS - UserID: {userId}");
+                
+                // Now get user modules from kv_store table
+                var modules = await GetUserModulesAsync(userId);
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Retrieved {modules.Count} modules");
                 
                 return new AuthResult
                 {
                     IsSuccess = true,
                     UserId = userId,
                     Login = login,
-                    SubscriptionPlan = sPlan
+                    SubscriptionPlan = null, // Not used yet
+                    Modules = modules
                 };
             }
             catch (HttpRequestException httpEx)
@@ -151,33 +224,83 @@ namespace dwg2rvt.Core
         }
         
         /// <summary>
-        /// Check if user has access to a feature based on subscription plan
+        /// Get user modules from kv_store table
         /// </summary>
-        public static bool HasAccess(string feature)
+        private async Task<List<UserModule>> GetUserModulesAsync(string userId)
+        {
+            var modules = new List<UserModule>();
+            
+            try
+            {
+                // Query kv_store table for keys starting with "user_modules:{userId}"
+                // Example: user_modules:fc2c7a31-1677-40c5-a02b-c4cc5fbe0895:dwg2rvt
+                string keyPrefix = $"user_modules:{userId}";
+                string query = $"{SUPABASE_URL}/rest/v1/kv_store_19422568?key=like.{Uri.EscapeDataString(keyPrefix + "*")}";
+                
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Fetching modules with query: {query}");
+                
+                var response = await _httpClient.GetAsync(query);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Failed to fetch modules: {response.StatusCode}");
+                    return modules; // Return empty list
+                }
+                
+                string jsonResponse = await response.Content.ReadAsStringAsync();
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Modules response: {jsonResponse}");
+                
+                var moduleRecords = JArray.Parse(jsonResponse);
+                
+                foreach (var record in moduleRecords)
+                {
+                    var value = JObject.Parse(record["value"]?.ToString() ?? "{}");
+                    
+                    string moduleTag = value["module_tag"]?.ToString();
+                    string startDateStr = value["start_date"]?.ToString();
+                    string endDateStr = value["end_date"]?.ToString();
+                    
+                    if (string.IsNullOrEmpty(moduleTag))
+                        continue;
+                    
+                    DateTime startDate = DateTime.TryParse(startDateStr, out var sd) ? sd : DateTime.MinValue;
+                    DateTime endDate = DateTime.TryParse(endDateStr, out var ed) ? ed : DateTime.MaxValue;
+                    
+                    modules.Add(new UserModule
+                    {
+                        ModuleTag = moduleTag,
+                        StartDate = startDate,
+                        EndDate = endDate
+                    });
+                    
+                    System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Module: {moduleTag}, Active: {startDate <= DateTime.Now && DateTime.Now <= endDate}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Error fetching modules: {ex.Message}");
+            }
+            
+            return modules;
+        }
+        
+        /// <summary>
+        /// Check if user has access to a module
+        /// </summary>
+        public static bool HasAccess(string moduleTag)
         {
             if (CurrentUser == null || !CurrentUser.IsSuccess)
                 return false; // Not authenticated
             
-            string plan = CurrentUser.SubscriptionPlan?.ToLower() ?? "free";
+            // Check if user has the module and it's active
+            var module = CurrentUser.Modules?.FirstOrDefault(m => 
+                m.ModuleTag.Equals(moduleTag, StringComparison.OrdinalIgnoreCase));
             
-            // Define feature access based on plans
-            switch (feature.ToLower())
-            {
-                case "analyze":
-                    // All plans can analyze
-                    return true;
-                
-                case "annotate":
-                    // Only pro and enterprise
-                    return plan == "pro" || plan == "enterprise";
-                
-                case "place_elements":
-                    // Only enterprise
-                    return plan == "enterprise";
-                
-                default:
-                    return false;
-            }
+            if (module == null)
+                return false; // Module not found
+            
+            // Check if module subscription is still valid
+            return module.IsActive;
         }
         
         /// <summary>
@@ -186,6 +309,42 @@ namespace dwg2rvt.Core
         public static void Logout()
         {
             CurrentUser = null;
+        }
+        
+        /// <summary>
+        /// Compute SHA-256 hash of a string
+        /// </summary>
+        private static string ComputeSha256Hash(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return string.Empty;
+            
+            using (SHA256 sha256 = SHA256.Create())
+            {
+                byte[] bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(input));
+                StringBuilder builder = new StringBuilder();
+                foreach (byte b in bytes)
+                {
+                    builder.Append(b.ToString("x2"));
+                }
+                return builder.ToString();
+            }
+        }
+        
+        /// <summary>
+        /// Check if string contains only hexadecimal characters
+        /// </summary>
+        private static bool IsHexString(string str)
+        {
+            if (string.IsNullOrEmpty(str))
+                return false;
+            
+            foreach (char c in str)
+            {
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+                    return false;
+            }
+            return true;
         }
     }
     
@@ -199,5 +358,17 @@ namespace dwg2rvt.Core
         public string Login { get; set; }
         public string SubscriptionPlan { get; set; }
         public string ErrorMessage { get; set; }
+        public List<UserModule> Modules { get; set; } = new List<UserModule>();
+    }
+    
+    /// <summary>
+    /// User module information
+    /// </summary>
+    public class UserModule
+    {
+        public string ModuleTag { get; set; }
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public bool IsActive => DateTime.Now >= StartDate && DateTime.Now <= EndDate;
     }
 }

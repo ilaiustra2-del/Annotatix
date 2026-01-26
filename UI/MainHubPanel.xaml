@@ -22,29 +22,13 @@
 
             <!-- Dynamic Header -->
             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,20">
-                <TextBlock x:Name="txtTitle" 
-                           Text="Менеджер плагинов" 
-                           FontSize="24" 
-                           FontWeight="Normal" 
-                           HorizontalAlignment="Left" 
-                           VerticalAlignment="Center"/>
-                
-                <!-- Version Number -->
-                <TextBlock x:Name="txtVersion" 
-                           Text="v 2.0" 
-                           FontSize="12" 
-                           FontWeight="Normal" 
-                           Foreground="#888888"
-                           Margin="10,0,0,0"
-                           VerticalAlignment="Center"/>
-                
                 <!-- Back Button (initially hidden) -->
                 <Button x:Name="btnBack" 
                         Content="← Назад" 
                         Visibility="Collapsed" 
                         Click="BtnBack_Click"
                         Padding="12,6"
-                        Margin="20,0,0,0"
+                        Margin="0,0,20,0"
                         Background="White"
                         BorderBrush="#CCCCCC"
                         BorderThickness="1"
@@ -72,6 +56,22 @@
                         </Style>
                     </Button.Style>
                 </Button>
+                
+                <TextBlock x:Name="txtTitle" 
+                           Text="Менеджер плагинов" 
+                           FontSize="24" 
+                           FontWeight="Normal" 
+                           HorizontalAlignment="Left" 
+                           VerticalAlignment="Center"/>
+                
+                <!-- Version Number -->
+                <TextBlock x:Name="txtVersion" 
+                           Text="v 2.0" 
+                           FontSize="12" 
+                           FontWeight="Normal" 
+                           Foreground="#888888"
+                           Margin="10,0,0,0"
+                           VerticalAlignment="Center"/>
             </StackPanel>
 
             <!-- Plugin Grid -->
@@ -85,7 +85,7 @@
                     <!-- First Row of Plugins -->
                     <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
                         <!-- dwg2rvt Button -->
-                        <StackPanel Margin="0,0,15,15" Cursor="Hand" MouseLeftButtonUp="Dwg2rvt_Click">
+                        <StackPanel x:Name="pnlDwg2rvt" Margin="0,0,15,15" Cursor="Hand" MouseLeftButtonUp="Dwg2rvt_Click" IsEnabled="False" Opacity="0.4">
                             <Border Width="110" Height="110" 
                                     Background="#E0E0E0" 
                                     CornerRadius="12"
@@ -101,17 +101,24 @@
                                        Margin="0,8,0,0"/>
                         </StackPanel>
 
-                        <!-- Placeholder 1 -->
-                        <StackPanel Margin="0,0,15,15">
+                        <!-- HVAC Button -->
+                        <StackPanel x:Name="pnlHVAC" Margin="0,0,15,15" Cursor="Hand" MouseLeftButtonUp="HVAC_Click" IsEnabled="False" Opacity="0.4">
                             <Border Width="110" Height="110" 
                                     Background="#E0E0E0" 
-                                    CornerRadius="12"/>
-                            <TextBlock Text="DWG2RVT" 
+                                    CornerRadius="12"
+                                    Padding="15">
+                                <TextBlock Text="HVAC" 
+                                           FontSize="32"
+                                           FontWeight="Bold"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="#9E9E9E"/>
+                            </Border>
+                            <TextBlock Text="HVAC" 
                                        FontSize="11" 
                                        FontWeight="Normal" 
                                        HorizontalAlignment="Center" 
-                                       Margin="0,8,0,0"
-                                       Opacity="0"/>
+                                       Margin="0,8,0,0"/>
                         </StackPanel>
 
                         <!-- Placeholder 2 -->

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using dwg2rvt.Core;
 
@@ -87,7 +88,24 @@ namespace dwg2rvt.UI
 
                 if (result.IsSuccess)
                 {
-                    txtStatus.Text = $"Авторизация успешна! Тариф: {result.SubscriptionPlan}";
+                    // Build status message with modules
+                    string modulesInfo = "";
+                    if (result.Modules != null && result.Modules.Count > 0)
+                    {
+                        var activeModules = result.Modules.Where(m => m.IsActive).ToList();
+                        if (activeModules.Count > 0)
+                        {
+                            var moduleDetails = activeModules.Select(m => 
+                                $"{m.ModuleTag} (до {m.EndDate:dd.MM.yyyy})");
+                            modulesInfo = $"\nАктивные модули: {string.Join(", ", moduleDetails)}";
+                        }
+                        else
+                        {
+                            modulesInfo = "\nНет активных модулей";
+                        }
+                    }
+                    
+                    txtStatus.Text = $"Авторизация успешна!{modulesInfo}";
                     txtStatus.Foreground = new System.Windows.Media.SolidColorBrush(
                         System.Windows.Media.Color.FromRgb(40, 167, 69));
 
