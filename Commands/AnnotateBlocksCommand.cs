@@ -20,38 +20,16 @@ namespace dwg2rvt.Commands
 
             try
             {
-                // Get the most recent analysis result from DWGAnalyzer
-                // We need to store the last analysis result somewhere accessible
-                // For now, let's look for the most recent log file
+                // Get data from cache instead of log files
+                var analysisResult = Core.AnalysisDataCache.GetLastAnalysisResult();
                 
-                string logDirectory = @"C:\Users\Свеж как огурец\Desktop\Эксперимент Annotatix\logs";
-                
-                if (!Directory.Exists(logDirectory))
+                if (analysisResult == null || !analysisResult.Success)
                 {
-                    TaskDialog.Show("Error", "Log directory not found. Please run analysis first.");
+                    TaskDialog.Show("Error", "No analysis data found in cache. Please run analysis first.");
                     return Result.Failed;
                 }
                 
-                // Find most recent log file (new format: DD.MM.YY_HH-MM_METHOD.txt)
-                var logFiles = Directory.GetFiles(logDirectory, "*.txt")
-                    .Where(f => Path.GetFileName(f).Contains("_GEOMETRICAL.txt") || 
-                                Path.GetFileName(f).Contains("_NAME.txt") ||
-                                Path.GetFileName(f).Contains("DWG_Analysis_")) // Support old format too
-                    .OrderByDescending(f => File.GetLastWriteTime(f))
-                    .ToList();
-                
-                if (logFiles.Count == 0)
-                {
-                    TaskDialog.Show("Error", "No analysis results found. Please run analysis first.");
-                    return Result.Failed;
-                }
-                
-                string latestLogFile = logFiles[0];
-                
-                // Parse the log file to extract block information
-                var blocks = ParseLogFile(latestLogFile);
-                
-                if (blocks.Count == 0)
+                if (analysisResult.BlockData == null || analysisResult.BlockData.Count == 0)
                 {
                     TaskDialog.Show("Error", "No blocks found in analysis results.");
                     return Result.Failed;
@@ -80,7 +58,7 @@ namespace dwg2rvt.Commands
                     
                     int annotatedCount = 0;
                     
-                    foreach (var block in blocks)
+                    foreach (var block in analysisResult.BlockData)
                     {
                         try
                         {

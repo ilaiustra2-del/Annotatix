@@ -42,9 +42,13 @@ namespace dwg2rvt.Core
             public List<ComponentInfo> Components { get; set; } = new List<ComponentInfo>();
         }
     
-        public AnalysisResult Analyze(ImportInstance importInstance, Action<string> statusCallback = null)
+        public AnalysisResult Analyze(ImportInstance importInstance, Action<string> statusCallback = null, bool enableLogging = false)
         {
             AnalysisResult result = new AnalysisResult();
+            result.ImportInstanceName = importInstance.Name;
+            result.ImportInstanceId = (int)importInstance.Id.Value;
+            result.AnalysisTimestamp = DateTime.Now;
+            
             List<DetailedBlockInfo> blocks = new List<DetailedBlockInfo>();
             List<string> debugLog = new List<string>();
         
@@ -96,8 +100,59 @@ namespace dwg2rvt.Core
                 statusCallback?.Invoke(result.Summary);
                 statusCallback?.Invoke($"Processed {blocks.Count} blocks.");
                 
-                string logPath = GenerateDetailedLog(importInstance, blocks, debugLog, result.Summary, statusCallback);
-                result.LogFilePath = logPath;
+                // Convert to BlockData for in-memory storage
+                foreach (var block in blocks)
+                {
+                    BlockData blockData = new BlockData
+                    {
+                        Name = block.Name,
+                        Number = block.Number,
+                        CenterX = block.ComputedCenter.X,
+                        CenterY = block.ComputedCenter.Y,
+                        RotationAngle = block.RotationAngle
+                    };
+                    
+                    // Convert components
+                    foreach (var comp in block.Components)
+                    {
+                        blockData.Components.Add(new ComponentData
+                        {
+                            Type = comp.Type,
+                            CenterX = comp.Center.X,
+                            CenterY = comp.Center.Y,
+                            ArcRadius = comp.ArcRadius,
+                            ArcStartAngle = comp.ArcStartAngle,
+                            ArcEndAngle = comp.ArcEndAngle
+                        });
+                    }
+                    
+                    result.BlockData.Add(blockData);
+                    
+                    // Group by type for easy access
+                    if (!result.BlocksByType.ContainsKey(block.Name))
+                    {
+                        result.BlocksByType[block.Name] = new List<BlockData>();
+                    }
+                    result.BlocksByType[block.Name].Add(blockData);
+                }
+                
+                // Store in cache
+                AnalysisDataCache.StoreAnalysisResult(result);
+                statusCallback?.Invoke("Analysis data stored in memory cache.");
+                
+                // Optional log file generation (controlled by user setting)
+                if (enableLogging)
+                {
+                    string logPath = GenerateDetailedLog(importInstance, blocks, debugLog, result.Summary, statusCallback);
+                    result.LogFilePath = logPath;
+                    statusCallback?.Invoke($"Log file saved: {logPath}");
+                }
+                else
+                {
+                    statusCallback?.Invoke("Logging disabled - data stored ONLY in memory cache.");
+                    result.LogFilePath = null;
+                }
+                
                 result.Success = true;
             }
             catch (Exception ex)

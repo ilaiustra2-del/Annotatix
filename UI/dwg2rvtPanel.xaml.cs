@@ -183,17 +183,30 @@ namespace dwg2rvt.UI
                 // Get selected import instance
                 ImportInstance selectedImport = _importedFiles[cmbImportedFiles.SelectedIndex];
 
+                // Get logging preference from checkbox
+                bool enableLogging = chkEnableLogging?.IsChecked ?? false;
+
                 // Perform analysis using new AnalyzeByBlockName class
                 Core.AnalyzeByBlockName analyzer = new Core.AnalyzeByBlockName(doc);
-                var analysisResult = analyzer.Analyze(selectedImport, UpdateStatus);
+                var analysisResult = analyzer.Analyze(selectedImport, UpdateStatus, enableLogging);
 
                 if (analysisResult.Success)
                 {
                     txtProgress.Text = "Analysis complete!";
-                    txtStatus.Text += $"Log file saved to: {analysisResult.LogFilePath}\n";
+                    txtStatus.Text += $"Analysis data stored in memory cache\n";
                     
-                    // Parse log file to get block data
-                    ParseAnalysisResults(analysisResult.LogFilePath);
+                    // Display logging status
+                    if (string.IsNullOrEmpty(analysisResult.LogFilePath))
+                    {
+                        txtStatus.Text += "Logging disabled - data in memory only\n";
+                    }
+                    else
+                    {
+                        txtStatus.Text += $"Log file: {analysisResult.LogFilePath}\n";
+                    }
+                    
+                    // Load block data from cache instead of parsing log file
+                    LoadAnalysisResultsFromCache();
                     
                     // Create dynamic UI for family selection
                     CreateFamilySelectionUI();
@@ -227,6 +240,61 @@ namespace dwg2rvt.UI
             {
                 txtStatus.Text += message + "\n";
             });
+        }
+        
+        private void LoadAnalysisResultsFromCache()
+        {
+            try
+            {
+                // Clear previous data
+                _blockTypesData.Clear();
+                
+                // Get analysis result from cache
+                var analysisResult = Core.AnalysisDataCache.GetLastAnalysisResult();
+                
+                if (analysisResult == null || !analysisResult.Success || analysisResult.BlockData == null)
+                {
+                    UpdateStatus("No analysis data found in cache.");
+                    return;
+                }
+                
+                // Group blocks by type
+                foreach (var blockType in analysisResult.BlocksByType)
+                {
+                    string blockTypeName = blockType.Key;
+                    var instances = blockType.Value;
+                    
+                    if (!_blockTypesData.ContainsKey(blockTypeName))
+                    {
+                        _blockTypesData[blockTypeName] = new BlockTypeInfo
+                        {
+                            BlockTypeName = blockTypeName,
+                            Count = 0
+                        };
+                    }
+                    
+                    // Add instances
+                    foreach (var blockData in instances)
+                    {
+                        _blockTypesData[blockTypeName].Instances.Add(new BlockInstanceData
+                        {
+                            Name = blockData.Name,
+                            Number = blockData.Number,
+                            CenterX = blockData.CenterX,
+                            CenterY = blockData.CenterY,
+                            RotationAngle = blockData.RotationAngle
+                        });
+                        
+                        _blockTypesData[blockTypeName].Count++;
+                    }
+                }
+                
+                UpdateStatus($"Loaded {_blockTypesData.Count} block types from cache.");
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Error loading analysis results from cache: {ex.Message}");
+            }
         }
         
         private void ParseAnalysisResults(string logFilePath)
@@ -819,32 +887,17 @@ namespace dwg2rvt.UI
 
                 try
                 {
-                    string logDirectory = @"C:\Users\Свеж как огурец\Desktop\Эксперимент Annotatix\logs";
+                    // Get data from cache instead of log files
+                    var analysisResult = Core.AnalysisDataCache.GetLastAnalysisResult();
                     
-                    if (!System.IO.Directory.Exists(logDirectory))
+                    if (analysisResult == null || !analysisResult.Success)
                     {
-                        MessageBox.Show("Log directory not found. Please run analysis first.", "Error", 
+                        MessageBox.Show("No analysis data found in cache. Please run analysis first.", "Error", 
                             MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
                     
-                    var logFiles = System.IO.Directory.GetFiles(logDirectory, "*.txt")
-                        .Where(f => System.IO.Path.GetFileName(f).Contains("_NAME.txt") ||
-                                    System.IO.Path.GetFileName(f).Contains("DWG_Analysis_"))
-                        .OrderByDescending(f => System.IO.File.GetLastWriteTime(f))
-                        .ToList();
-                    
-                    if (logFiles.Count == 0)
-                    {
-                        MessageBox.Show("No analysis results found. Please run analysis first.", "Error", 
-                            MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return;
-                    }
-                    
-                    string latestLogFile = logFiles[0];
-                    var blocks = Commands.AnnotateBlocksCommand.ParseLogFileStatic(latestLogFile);
-                    
-                    if (blocks.Count == 0)
+                    if (analysisResult.BlockData == null || analysisResult.BlockData.Count == 0)
                     {
                         MessageBox.Show("No blocks found in analysis results.", "Error", 
                             MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -876,7 +929,7 @@ namespace dwg2rvt.UI
                         }
                         
                         int annotatedCount = 0;
-                        foreach (var block in blocks)
+                        foreach (var block in analysisResult.BlockData)
                         {
                             try
                             {
