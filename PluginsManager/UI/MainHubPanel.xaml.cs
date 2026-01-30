@@ -90,6 +90,66 @@ namespace PluginsManager.UI
                 System.Diagnostics.Debug.WriteLine($"[HUB] Error getting version: {ex.Message}");
                 txtVersion.Text = "v 3.0"; // Fallback
             }
+            
+            // Try auto-authentication if saved credentials exist
+            this.Loaded += async (s, e) => await TryAutoAuthenticateOnStartup();
+        }
+        
+        /// <summary>
+        /// Try to authenticate automatically using saved credentials
+        /// </summary>
+        private async System.Threading.Tasks.Task TryAutoAuthenticateOnStartup()
+        {
+            try
+            {
+                // Check if there are saved credentials
+                if (!Core.LocalAuthStorage.HasSavedAuth())
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] No saved auth data, skipping auto-login");
+                    return;
+                }
+                
+                System.Diagnostics.Debug.WriteLine("[HUB] Found saved auth data, attempting auto-login...");
+                
+                // Show loading message
+                btnAuth.Content = "Авторизация...";
+                
+                var authService = new Core.AuthService();
+                var result = await authService.TryAutoAuthenticateAsync();
+                
+                if (result.IsSuccess)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[HUB] Auto-login successful for: {result.Login}");
+                    
+                    // Store current user
+                    Core.AuthService.CurrentUser = result;
+                    
+                    // Download missing module files
+                    await DownloadMissingModules(result.ModuleFiles);
+                    
+                    // Update UI
+                    btnAuth.Content = "Выйти";
+                    
+                    // Show modules info
+                    ShowModulesInfo(result.Modules);
+                    
+                    // Show refresh button
+                    btnRefreshUserData.Visibility = Visibility.Visible;
+                    
+                    // Activate module buttons
+                    ActivateModuleButtons(result.Modules);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[HUB] Auto-login failed: {result.ErrorMessage}");
+                    btnAuth.Content = "Войти в учётную запись";
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Auto-login exception: {ex.Message}");
+                btnAuth.Content = "Войти в учётную запись";
+            }
         }
 
         private void Dwg2rvt_Click(object sender, MouseButtonEventArgs e)
@@ -273,19 +333,47 @@ namespace PluginsManager.UI
             }
         }
         
-        private void BtnAuth_Click(object sender, RoutedEventArgs e)
+        private async void BtnAuth_Click(object sender, RoutedEventArgs e)
         {
             try
             {
+                // Check if user is already logged in (button shows "Выйти")
+                if (Core.AuthService.CurrentUser != null && Core.AuthService.CurrentUser.IsSuccess)
+                {
+                    // Logout
+                    var result = MessageBox.Show("Вы уверены, что хотите выйти?", 
+                        "Выход", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        Core.AuthService.Logout();
+                        
+                        // Reset UI
+                        btnAuth.Content = "Войти в учётную запись";
+                        txtModulesInfo.Text = "";
+                        txtModulesInfo.Visibility = Visibility.Collapsed;
+                        btnRefreshUserData.Visibility = Visibility.Collapsed;
+                        
+                        // Disable module buttons
+                        pnlDwg2rvt.IsEnabled = false;
+                        pnlDwg2rvt.Opacity = 0.5;
+                        pnlHVAC.IsEnabled = false;
+                        pnlHVAC.Opacity = 0.5;
+                        
+                        System.Diagnostics.Debug.WriteLine("[AUTH] User logged out");
+                    }
+                    return;
+                }
+                
                 System.Diagnostics.Debug.WriteLine("[AUTH] Opening authentication panel...");
                 
                 // Open authentication panel
                 var authPanel = new AuthPanel();
-                bool? result = authPanel.ShowDialog();
+                bool? result2 = authPanel.ShowDialog();
                 
-                System.Diagnostics.Debug.WriteLine($"[AUTH] Dialog result: {result}");
+                System.Diagnostics.Debug.WriteLine($"[AUTH] Dialog result: {result2}");
                 
-                if (result == true)
+                if (result2 == true)
                 {
                     // Log authentication success with timestamp
                     var authTimestamp = DateTime.Now.ToString("HH:mm:ss.fff");
@@ -300,41 +388,22 @@ namespace PluginsManager.UI
                     var currentUser = Core.AuthService.CurrentUser;
                     if (currentUser != null && currentUser.IsSuccess)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[AUTH] SUCCESS - User: {currentUser.Login}, Plan: {currentUser.SubscriptionPlan}");
+                        System.Diagnostics.Debug.WriteLine($"[AUTH] SUCCESS - User: {currentUser.Login}");
                         
-                        // Update button state
-                        btnAuth.Content = $"Вы вошли: {currentUser.Login}";
-                        btnAuth.IsEnabled = false;
+                        // Download missing module files
+                        await DownloadMissingModules(currentUser.ModuleFiles);
                         
-                        // Show user status with active modules in bottom right
-                        var activeModules = currentUser.Modules?.Where(m => m.IsActive).ToList();
-                        string modulesText = "";
-                        if (activeModules != null && activeModules.Count > 0)
-                        {
-                            var moduleDetails = activeModules.Select(m => 
-                                $"{m.ModuleTag} (до {m.EndDate:dd.MM.yyyy})").ToList();
-                            modulesText = $"\nМодули: {string.Join(", ", moduleDetails)}";
-                        }
-                        else
-                        {
-                            modulesText = "\nМодули: нет активных";
-                        }
+                        // Update UI
+                        btnAuth.Content = "Выйти";
                         
-                        txtUserStatus.Text = $"Пользователь: {currentUser.Login}{modulesText}";
-                        txtUserStatus.Visibility = Visibility.Visible;
+                        // Show modules info
+                        ShowModulesInfo(currentUser.Modules);
+                        
+                        // Show refresh button
+                        btnRefreshUserData.Visibility = Visibility.Visible;
                         
                         // Activate module buttons based on user's modules
                         ActivateModuleButtons(currentUser.Modules);
-                        
-                        // Show success notification (without subscription plan)
-                        string welcomeMsg = "Добро пожаловать!";
-                        if (activeModules != null && activeModules.Count > 0)
-                        {
-                            var moduleInfo = activeModules.Select(m => 
-                                $"{m.ModuleTag} (активен до {m.EndDate:dd.MM.yyyy})").ToList();
-                            welcomeMsg += $"\nАктивные модули:\n{string.Join("\n", moduleInfo)}";
-                        }
-                        MessageBox.Show(welcomeMsg, "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
                     else
                     {
@@ -359,6 +428,176 @@ namespace PluginsManager.UI
         }
         
         /// <summary>
+        /// Show modules information in the UI
+        /// </summary>
+        private void ShowModulesInfo(List<Core.UserModule> modules)
+        {
+            if (modules == null || modules.Count == 0)
+            {
+                txtModulesInfo.Text = "Модули: нет активных";
+                txtModulesInfo.Visibility = Visibility.Visible;
+                return;
+            }
+            
+            var activeModules = modules.Where(m => m.IsActive).ToList();
+            if (activeModules.Count == 0)
+            {
+                txtModulesInfo.Text = "Модули: нет активных";
+                txtModulesInfo.Visibility = Visibility.Visible;
+                return;
+            }
+            
+            var moduleDetails = activeModules.Select(m => 
+                $"{m.ModuleTag} (до {m.EndDate:dd.MM.yyyy})").ToList();
+            txtModulesInfo.Text = $"Модули: {string.Join(", ", moduleDetails)}";
+            txtModulesInfo.Visibility = Visibility.Visible;
+        }
+        
+        /// <summary>
+        /// Download missing module files from server
+        /// </summary>
+        private async System.Threading.Tasks.Task DownloadMissingModules(List<Core.ModuleFileInfo> moduleFiles)
+        {
+            if (moduleFiles == null || moduleFiles.Count == 0)
+            {
+                System.Diagnostics.Debug.WriteLine("[HUB] No module files to download");
+                return;
+            }
+            
+            try
+            {
+                var downloader = new Core.ModuleDownloader();
+                
+                // Check which modules need to be downloaded
+                var toDownload = downloader.GetModulesToDownload(moduleFiles);
+                
+                if (toDownload.Count == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] All module files already present");
+                    return;
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"[HUB] Need to download {toDownload.Count} modules");
+                
+                // Show progress
+                var progress = new Progress<string>(message =>
+                {
+                    System.Diagnostics.Debug.WriteLine($"[HUB-DOWNLOAD] {message}");
+                });
+                
+                // Download modules
+                var (success, total) = await downloader.DownloadAllModules(toDownload, progress);
+                
+                if (success > 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[HUB] Downloaded {success}/{total} modules successfully");
+                    
+                    // Show success message
+                    if (success == total)
+                    {
+                        MessageBox.Show($"Загружено модулей: {success}",
+                            "Загрузка завершена", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+                    else
+                    {
+                        // Build list of failed modules
+                        var failedModules = toDownload.Where(m => 
+                            !new Core.ModuleDownloader().IsModuleInstalled(m.ModuleTag)).ToList();
+                        var failedNames = string.Join(", ", failedModules.Select(m => m.ModuleTag));
+                        
+                        MessageBox.Show($"Загружено: {success}/{total}\n\nНе удалось загрузить:\n{failedNames}\n\nВозможные причины:\n- Файлы модулей отсутствуют на сервере\n- Проблемы с интернет-соединением",
+                            "Частичная загрузка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                }
+                else if (total > 0)
+                {
+                    MessageBox.Show("Не удалось загрузить файлы модулей.\n\nВозможные причины:\n- Отсутствует интернет-соединение\n- Файлы не загружены на сервер",
+                        "Ошибка загрузки", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Download error: {ex.Message}");
+                MessageBox.Show($"Ошибка при загрузке модулей:\n{ex.Message}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        /// <summary>
+        /// Refresh user data and reload modules
+        /// </summary>
+        private async void BtnRefreshUserData_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // Check if user is logged in
+                if (Core.AuthService.CurrentUser == null || !Core.AuthService.CurrentUser.IsSuccess)
+                {
+                    MessageBox.Show("Пожалуйста, войдите в учётную запись.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                
+                System.Diagnostics.Debug.WriteLine("[HUB] User requested data refresh...");
+                
+                // Disable button during refresh
+                btnRefreshUserData.IsEnabled = false;
+                btnRefreshUserData.Content = "⏳ Обновление...";
+                
+                // Get current user email
+                var currentEmail = Core.AuthService.CurrentUser.Login;
+                
+                // Request fresh data from server
+                var authService = new Core.AuthService();
+                var result = await authService.TryAutoAuthenticateAsync();
+                
+                if (result.IsSuccess)
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] User data refreshed successfully");
+                    
+                    // Update current user
+                    Core.AuthService.CurrentUser = result;
+                    
+                    // Download missing module files
+                    await DownloadMissingModules(result.ModuleFiles);
+                    
+                    // Update modules info display
+                    ShowModulesInfo(result.Modules);
+                    
+                    // First, reset all module buttons to disabled state
+                    pnlDwg2rvt.IsEnabled = false;
+                    pnlDwg2rvt.Opacity = 0.5;
+                    pnlHVAC.IsEnabled = false;
+                    pnlHVAC.Opacity = 0.5;
+                    
+                    // Now re-activate based on fresh data and file availability
+                    ActivateModuleButtons(result.Modules);
+                    
+                    MessageBox.Show("Данные пользователя обновлены!",
+                        "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[HUB] Refresh failed: {result.ErrorMessage}");
+                    MessageBox.Show($"Не удалось обновить данные:\n{result.ErrorMessage}",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Refresh exception: {ex.Message}");
+                MessageBox.Show($"Ошибка при обновлении данных:\n{ex.Message}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                // Re-enable button
+                btnRefreshUserData.IsEnabled = true;
+                btnRefreshUserData.Content = "🔄 Обновить данные пользователя";
+            }
+        }
+        
+        /// <summary>
         /// Load and activate modules based on user's active modules
         /// </summary>
         private void ActivateModuleButtons(List<Core.UserModule> modules)
@@ -374,9 +613,15 @@ namespace PluginsManager.UI
             // Get modules directory path
             var assembly = System.Reflection.Assembly.GetExecutingAssembly();
             var assemblyPath = Path.GetDirectoryName(assembly.Location);
-            var modulesPath = assemblyPath; // Modules DLLs are in the same directory
             
-            System.Diagnostics.Debug.WriteLine($"[HUB] Modules path: {modulesPath}");
+            // Go up one level from main/ to annotatix_dependencies/
+            var modulesPath = Path.GetDirectoryName(assemblyPath);
+            
+            System.Diagnostics.Debug.WriteLine($"[HUB] Assembly path: {assemblyPath}");
+            System.Diagnostics.Debug.WriteLine($"[HUB] Modules base path: {modulesPath}");
+            
+            // Check for missing module files
+            var missingModules = new List<string>();
             
             foreach (var module in modules)
             {
@@ -389,24 +634,58 @@ namespace PluginsManager.UI
                 switch (moduleTag)
                 {
                     case "dwg2rvt":
-                        LoadAndActivateDwg2rvtModule(modulesPath);
+                        if (!CheckModuleFilesExist(modulesPath, "dwg2rvt", "dwg2rvt.Module.dll"))
+                            missingModules.Add("dwg2rvt");
+                        else
+                            LoadAndActivateDwg2rvtModule(modulesPath);
                         break;
                         
                     case "hvac":
-                        LoadAndActivateHVACModule(modulesPath);
+                        if (!CheckModuleFilesExist(modulesPath, "hvac", "HVAC.Module.dll"))
+                            missingModules.Add("hvac");
+                        else
+                            LoadAndActivateHVACModule(modulesPath);
                         break;
                         
                     case "full":
-                        // Load all modules
-                        LoadAndActivateDwg2rvtModule(modulesPath);
-                        LoadAndActivateHVACModule(modulesPath);
-                        System.Diagnostics.Debug.WriteLine("[HUB] All modules activated (full access)");
+                        // Check both modules
+                        bool dwg2rvtExists = CheckModuleFilesExist(modulesPath, "dwg2rvt", "dwg2rvt.Module.dll");
+                        bool hvacExists = CheckModuleFilesExist(modulesPath, "hvac", "HVAC.Module.dll");
+                        
+                        if (!dwg2rvtExists)
+                            missingModules.Add("dwg2rvt");
+                        else
+                            LoadAndActivateDwg2rvtModule(modulesPath);
+                            
+                        if (!hvacExists)
+                            missingModules.Add("hvac");
+                        else
+                            LoadAndActivateHVACModule(modulesPath);
+                            
+                        if (dwg2rvtExists && hvacExists)
+                            System.Diagnostics.Debug.WriteLine("[HUB] All modules activated (full access)");
                         break;
                         
                     default:
                         System.Diagnostics.Debug.WriteLine($"[HUB] Unknown module: {moduleTag}");
                         break;
                 }
+            }
+            
+            // Show warning if any modules are missing
+            if (missingModules.Count > 0)
+            {
+                var message = "У вас отсутствуют файлы одного или нескольких модулей:\n";
+                foreach (var moduleName in missingModules)
+                {
+                    message += $"- {moduleName}\n";
+                }
+                message += "\nОбратитесь в поддержку для получения необходимых файлов.";
+                
+                MessageBox.Show(message, "Отсутствуют файлы модулей", 
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                    
+                Core.DebugLogger.Log($"[HUB] WARNING: Missing module files: {string.Join(", ", missingModules)}");
             }
             
             // Log loaded modules info
@@ -418,13 +697,36 @@ namespace PluginsManager.UI
         }
         
         /// <summary>
+        /// Check if module files exist
+        /// </summary>
+        private bool CheckModuleFilesExist(string modulesPath, string moduleFolderName, string moduleDllName)
+        {
+            var moduleFolder = Path.Combine(modulesPath, moduleFolderName);
+            var moduleDllPath = Path.Combine(moduleFolder, moduleDllName);
+            
+            if (!Directory.Exists(moduleFolder))
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Module folder does not exist: {moduleFolder}");
+                return false;
+            }
+            
+            if (!File.Exists(moduleDllPath))
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Module DLL does not exist: {moduleDllPath}");
+                return false;
+            }
+            
+            return true;
+        }
+        
+        /// <summary>
         /// Load and activate DWG2RVT module
         /// </summary>
         private void LoadAndActivateDwg2rvtModule(string modulesPath)
         {
             try
             {
-                var moduleDllPath = Path.Combine(modulesPath, "dwg2rvt.Module.dll");
+                var moduleDllPath = Path.Combine(modulesPath, "dwg2rvt", "dwg2rvt.Module.dll");
                 System.Diagnostics.Debug.WriteLine($"[HUB] Loading dwg2rvt module from: {moduleDllPath}");
                 
                 if (Core.DynamicModuleLoader.LoadModule("dwg2rvt", moduleDllPath))
@@ -452,7 +754,7 @@ namespace PluginsManager.UI
         {
             try
             {
-                var moduleDllPath = Path.Combine(modulesPath, "HVAC.Module.dll");
+                var moduleDllPath = Path.Combine(modulesPath, "hvac", "HVAC.Module.dll");
                 System.Diagnostics.Debug.WriteLine($"[HUB] Loading HVAC module from: {moduleDllPath}");
                 
                 if (Core.DynamicModuleLoader.LoadModule("hvac", moduleDllPath))

@@ -80,9 +80,11 @@
     <Compile Update="PluginsManager\**\*.xaml.cs" DependentUpon="%(Filename)" />
   </ItemGroup>
 
-  <!-- Build Events -->
+  <!-- Build Events - DISABLED: Now handled by PostBuildTrigger project -->
+  <!-- 
   <Target Name="PostBuildDeployment" AfterTargets="Build">
     <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(ProjectDir)PostBuild.ps1&quot; -ProjectDir &quot;$(ProjectDir)&quot; -TargetDir &quot;$(TargetDir)&quot; -TargetFileName &quot;$(TargetFileName)&quot;" />
   </Target>
+  -->
 
 </Project>

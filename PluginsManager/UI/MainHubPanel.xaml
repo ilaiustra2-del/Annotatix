@@ -222,7 +222,7 @@
                         Background="#E8E8E8"
                         BorderThickness="0"
                         Cursor="Hand"
-                        Margin="0,0,0,30">
+                        Margin="0,0,0,10">
                     <Button.Style>
                         <Style TargetType="Button">
                             <Setter Property="Template">
@@ -239,6 +239,51 @@
                             <Style.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter Property="Background" Value="#D0D0D0"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                
+                <!-- Modules Info TextBlock -->
+                <TextBlock x:Name="txtModulesInfo"
+                           Text=""
+                           FontSize="11"
+                           Foreground="#28A745"
+                           Margin="0,0,0,10"
+                           TextWrapping="Wrap"
+                           Visibility="Collapsed"/>
+                
+                <!-- Refresh User Data Button -->
+                <Button x:Name="btnRefreshUserData"
+                        Content="🔄 Обновить данные пользователя" 
+                        Click="BtnRefreshUserData_Click"
+                        Padding="10,8"
+                        Background="#E3F2FD"
+                        BorderBrush="#90CAF9"
+                        BorderThickness="1"
+                        Cursor="Hand"
+                        Margin="0,0,0,20"
+                        Visibility="Collapsed"
+                        ToolTip="Обновить список модулей и проверить наличие файлов">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="4"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#BBDEFB"/>
                                 </Trigger>
                             </Style.Triggers>
                         </Style>

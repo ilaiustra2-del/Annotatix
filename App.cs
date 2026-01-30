@@ -47,7 +47,7 @@ namespace dwg2rvt
                 Core.DebugLogger.Log("");
                 
                 // Create ribbon tab
-                string tabName = "Plugin";
+                string tabName = "Annotatix";
                 try
                 {
                     application.CreateRibbonTab(tabName);

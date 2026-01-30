@@ -50,6 +50,78 @@ namespace PluginsManager.Core
             {
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Starting authentication for: {login}");
                 
+                var result = await AuthenticateInternalAsync(login, password);
+                
+                // Save auth data locally if successful
+                if (result.IsSuccess && !string.IsNullOrEmpty(result.RefreshToken))
+                {
+                    LocalAuthStorage.SaveAuthData(result.Login, result.RefreshToken);
+                    System.Diagnostics.Debug.WriteLine("[AUTH-SERVICE] Auth data saved locally");
+                }
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] EXCEPTION: {ex.Message}");
+                return new AuthResult
+                {
+                    IsSuccess = false,
+                    ErrorMessage = $"Ошибка плагина: {ex.Message}"
+                };
+            }
+        }
+        
+        /// <summary>
+        /// Try to authenticate automatically using saved credentials
+        /// </summary>
+        public async Task<AuthResult> TryAutoAuthenticateAsync()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("[AUTH-SERVICE] Attempting auto-authentication...");
+                
+                var savedAuth = LocalAuthStorage.LoadAuthData();
+                if (savedAuth == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[AUTH-SERVICE] No saved auth data found");
+                    return new AuthResult { IsSuccess = false, ErrorMessage = "No saved credentials" };
+                }
+                
+                var (email, refreshToken, timestamp) = savedAuth.Value;
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Found saved auth for: {email}");
+                
+                // Validate refresh token and get user data
+                var result = await ValidateRefreshTokenAsync(email, refreshToken);
+                
+                if (result.IsSuccess)
+                {
+                    System.Diagnostics.Debug.WriteLine("[AUTH-SERVICE] Auto-authentication successful");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[AUTH-SERVICE] Auto-authentication failed, clearing saved data");
+                    LocalAuthStorage.ClearAuthData();
+                }
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Auto-auth exception: {ex.Message}");
+                return new AuthResult { IsSuccess = false, ErrorMessage = ex.Message };
+            }
+        }
+        
+        /// <summary>
+        /// Internal authentication logic (without saving)
+        /// </summary>
+        private async Task<AuthResult> AuthenticateInternalAsync(string login, string password)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Starting authentication for: {login}");
+                
                 // Build Supabase REST API query
                 // Query kv_store table for key = "user_data:{user_id}" where login matches
                 // We need to search all user_data keys and parse their JSON values
@@ -184,13 +256,19 @@ namespace PluginsManager.Core
                 var modules = await GetUserModulesAsync(userId);
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Retrieved {modules.Count} modules");
                 
+                // Get download URLs for module files
+                var moduleFiles = await GetModuleFilesAsync(modules);
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Retrieved {moduleFiles.Count} module file URLs");
+                
                 return new AuthResult
                 {
                     IsSuccess = true,
                     UserId = userId,
                     Login = login,
                     SubscriptionPlan = null, // Not used yet
-                    Modules = modules
+                    Modules = modules,
+                    ModuleFiles = moduleFiles,
+                    RefreshToken = GenerateRefreshToken(userId) // Generate token for auto-login
                 };
             }
             catch (HttpRequestException httpEx)
@@ -285,6 +363,43 @@ namespace PluginsManager.Core
         }
         
         /// <summary>
+        /// Get download URLs for module files
+        /// </summary>
+        private async Task<List<ModuleFileInfo>> GetModuleFilesAsync(List<UserModule> modules)
+        {
+            var moduleFiles = new List<ModuleFileInfo>();
+            
+            foreach (var module in modules)
+            {
+                if (!module.IsActive)
+                    continue;
+                
+                // Use original module tag for file names (preserve case)
+                // dwg2rvt -> dwg2rvt (lowercase)
+                // HVAC -> HVAC (uppercase)
+                var moduleTag = module.ModuleTag; // Keep original case!
+                var folderName = moduleTag.ToLower(); // Folder name is lowercase
+                
+                // Supabase Storage public URLs
+                // Format: https://{SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}
+                var baseUrl = $"{SUPABASE_URL}/storage/v1/object/public/modules";
+                
+                moduleFiles.Add(new ModuleFileInfo
+                {
+                    ModuleTag = folderName, // For local folder creation
+                    DllDownloadUrl = $"{baseUrl}/{folderName}/{moduleTag}.Module.dll",
+                    PdbDownloadUrl = $"{baseUrl}/{folderName}/{moduleTag}.Module.pdb",
+                    Version = "1.0.0",
+                    FileSize = 0
+                });
+                
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Module file URL: {moduleFiles.Last().DllDownloadUrl}");
+            }
+            
+            return await Task.FromResult(moduleFiles);
+        }
+        
+        /// <summary>
         /// Check if user has access to a module
         /// </summary>
         public static bool HasAccess(string moduleTag)
@@ -309,6 +424,93 @@ namespace PluginsManager.Core
         public static void Logout()
         {
             CurrentUser = null;
+            LocalAuthStorage.ClearAuthData();
+            System.Diagnostics.Debug.WriteLine("[AUTH-SERVICE] User logged out, local data cleared");
+        }
+        
+        /// <summary>
+        /// Generate refresh token for user
+        /// </summary>
+        private static string GenerateRefreshToken(string userId)
+        {
+            // Generate token: userId + timestamp + random bytes, then hash
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var randomBytes = new byte[16];
+            using (var rng = new RNGCryptoServiceProvider())
+            {
+                rng.GetBytes(randomBytes);
+            }
+            var randomString = Convert.ToBase64String(randomBytes);
+            var tokenData = $"{userId}|{timestamp}|{randomString}";
+            return ComputeSha256Hash(tokenData);
+        }
+        
+        /// <summary>
+        /// Validate refresh token and return user data
+        /// </summary>
+        private async Task<AuthResult> ValidateRefreshTokenAsync(string email, string refreshToken)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Validating refresh token for: {email}");
+                
+                // Get user data from server
+                string query = $"{SUPABASE_URL}/rest/v1/kv_store_19422568?key=like.user_data:*";
+                var response = await _httpClient.GetAsync(query);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    return new AuthResult { IsSuccess = false, ErrorMessage = "Ошибка сервера" };
+                }
+                
+                string jsonResponse = await response.Content.ReadAsStringAsync();
+                var records = JArray.Parse(jsonResponse);
+                
+                // Find user by email
+                JObject userData = null;
+                string userId = null;
+                
+                foreach (var record in records)
+                {
+                    string key = record["key"]?.ToString();
+                    var value = JObject.Parse(record["value"]?.ToString() ?? "{}");
+                    string userLogin = value["login"]?.ToString();
+                    
+                    if (userLogin != null && userLogin.Equals(email, StringComparison.OrdinalIgnoreCase))
+                    {
+                        userData = value;
+                        userId = key?.Replace("user_data:", "");
+                        break;
+                    }
+                }
+                
+                if (userData == null)
+                {
+                    return new AuthResult { IsSuccess = false, ErrorMessage = "Пользователь не найден" };
+                }
+                
+                // Get modules
+                var modules = await GetUserModulesAsync(userId);
+                
+                // Get download URLs for module files
+                var moduleFiles = await GetModuleFilesAsync(modules);
+                
+                return new AuthResult
+                {
+                    IsSuccess = true,
+                    UserId = userId,
+                    Login = email,
+                    SubscriptionPlan = null,
+                    Modules = modules,
+                    ModuleFiles = moduleFiles,
+                    RefreshToken = refreshToken // Keep the same token
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Token validation error: {ex.Message}");
+                return new AuthResult { IsSuccess = false, ErrorMessage = ex.Message };
+            }
         }
         
         /// <summary>
@@ -358,7 +560,9 @@ namespace PluginsManager.Core
         public string Login { get; set; }
         public string SubscriptionPlan { get; set; }
         public string ErrorMessage { get; set; }
+        public string RefreshToken { get; set; }
         public List<UserModule> Modules { get; set; } = new List<UserModule>();
+        public List<ModuleFileInfo> ModuleFiles { get; set; } = new List<ModuleFileInfo>();
     }
     
     /// <summary>

@@ -13,6 +13,44 @@ namespace PluginsManager.Core
     {
         private static Dictionary<string, Assembly> _loadedModules = new Dictionary<string, Assembly>();
         private static Dictionary<string, IModule> _moduleInstances = new Dictionary<string, IModule>();
+        private static bool _assemblyResolverInitialized = false;
+        private static string _mainFolderPath = null;
+
+        /// <summary>
+        /// Initialize AssemblyResolve handler for module dependencies
+        /// </summary>
+        private static void InitializeAssemblyResolver()
+        {
+            if (_assemblyResolverInitialized)
+                return;
+
+            // Get main folder path (where PluginsManager.dll is located)
+            var currentAssembly = Assembly.GetExecutingAssembly();
+            _mainFolderPath = Path.GetDirectoryName(currentAssembly.Location);
+            
+            DebugLogger.Log($"[MODULE-LOADER] Initializing AssemblyResolver for main folder: {_mainFolderPath}");
+
+            AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
+            {
+                // Parse the assembly name
+                var assemblyName = new AssemblyName(args.Name);
+                var fileName = assemblyName.Name + ".dll";
+                
+                // Look for assembly in main folder
+                var mainPath = Path.Combine(_mainFolderPath, fileName);
+                
+                if (File.Exists(mainPath))
+                {
+                    DebugLogger.Log($"[ASSEMBLY-RESOLVER] Resolving {assemblyName.Name} from main folder");
+                    return Assembly.LoadFrom(mainPath);
+                }
+                
+                return null;
+            };
+
+            _assemblyResolverInitialized = true;
+            DebugLogger.Log("[MODULE-LOADER] AssemblyResolver initialized");
+        }
 
         /// <summary>
         /// Load a compiled module DLL
@@ -24,6 +62,9 @@ namespace PluginsManager.Core
         {
             try
             {
+                // Initialize AssemblyResolver on first module load
+                InitializeAssemblyResolver();
+                
                 DebugLogger.Log($"[MODULE-LOADER] Loading module: {moduleTag} from {moduleDllPath}");
 
                 // Check if module already loaded

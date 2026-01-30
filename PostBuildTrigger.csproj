@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace>PostBuildTrigger</RootNamespace>
+    <AssemblyName>PostBuildTrigger</AssemblyName>
+    <OutputType>Library</OutputType>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <!-- Disable all compilation -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultItems>false</EnableDefaultItems>
+  </PropertyGroup>
+
+  <!-- This project depends on all other projects -->
+  <ItemGroup>
+    <ProjectReference Include="PluginsManager.csproj" />
+    <ProjectReference Include="dwg2rvt.Module.csproj" />
+    <ProjectReference Include="HVAC.Module.csproj" />
+  </ItemGroup>
+
+  <!-- Add a dummy file to compile (project won't build without any source) -->
+  <ItemGroup>
+    <Compile Include="PostBuildTrigger.cs" />
+  </ItemGroup>
+
+  <!-- Run PostBuild.ps1 AFTER all projects are built -->
+  <Target Name="RunPostBuildAfterAll" AfterTargets="Build">
+    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(ProjectDir)PostBuild.ps1&quot;" />
+  </Target>
+
+</Project>
