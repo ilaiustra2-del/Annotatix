@@ -11,7 +11,12 @@ namespace dwg2rvt.UI
         public HVACPanel()
         {
             InitializeComponent();
-            System.Diagnostics.Debug.WriteLine("[HVAC-PANEL] Panel initialized");
+            
+            // Debug logging with timestamp to verify dynamic loading
+            var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+            Core.DebugLogger.Log("[HVAC-PANEL] *** PANEL INSTANCE CREATED ***");
+            Core.DebugLogger.Log("[HVAC-PANEL] This proves the panel was NOT loaded at Revit startup");
+            Core.DebugLogger.Log("[HVAC-PANEL] Panel created AFTER authentication");
         }
     }
 }

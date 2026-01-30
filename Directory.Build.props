@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <FrameworkPathOverride>C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8</FrameworkPathOverride>
+  </PropertyGroup>
+</Project>

@@ -23,15 +23,12 @@ if (Test-Path $BuildNumberFile) {
 
 Write-Host "Build Number: $BuildNumber"
 
-# Format build number with leading zero (01, 02, etc.)
-$FormattedBuild = $BuildNumber
-if ([int]$BuildNumber -lt 10) {
-    $FormattedBuild = "0$BuildNumber"
-}
+# Format build number with leading zeros (001, 002, etc.)
+$FormattedBuild = $BuildNumber.PadLeft(3, '0')
 
 # Define base output directory
 $BaseOutput = [System.IO.Path]::GetDirectoryName($ProjectDir.TrimEnd('\'))
-$VersionFolder = "dwg2rvt_ver2.$FormattedBuild"
+$VersionFolder = "plugins_manager_ver3.$FormattedBuild"
 $OutputDir = [System.IO.Path]::Combine($BaseOutput, $VersionFolder)
 
 Write-Host "Output Directory: $OutputDir"
@@ -42,15 +39,15 @@ if (-not (Test-Path $OutputDir)) {
     Write-Host "Created directory: $OutputDir"
 }
 
-# Create dwg2rvt-dll folder
-$DllFolder = [System.IO.Path]::Combine($OutputDir, "dwg2rvt-dll")
+# Create plugins-manager-dll folder
+$DllFolder = [System.IO.Path]::Combine($OutputDir, "plugins-manager-dll")
 if (-not (Test-Path $DllFolder)) {
     New-Item -ItemType Directory -Path $DllFolder -Force | Out-Null
     Write-Host "Created directory: $DllFolder"
 }
 
-# Create dwg2rvtdependencies folder
-$DependenciesFolder = [System.IO.Path]::Combine($OutputDir, "dwg2rvtdependencies")
+# Create plugins_manager_dependencies folder
+$DependenciesFolder = [System.IO.Path]::Combine($OutputDir, "plugins_manager_dependencies")
 if (-not (Test-Path $DependenciesFolder)) {
     New-Item -ItemType Directory -Path $DependenciesFolder -Force | Out-Null
     Write-Host "Created directory: $DependenciesFolder"
@@ -60,21 +57,21 @@ Write-Host ""
 Write-Host "Copying files..."
 Write-Host "----------------"
 
-# Copy all files to dwg2rvt-dll folder
-Write-Host "Copying to dwg2rvt-dll..."
+# Copy all files to plugins-manager-dll folder
+Write-Host "Copying to plugins-manager-dll..."
 Copy-Item -Path "$TargetDir*" -Destination $DllFolder -Force -Recurse
-Write-Host "- Copied all build output to dwg2rvt-dll"
+Write-Host "- Copied all build output to plugins-manager-dll"
 
-# Copy all files to dwg2rvtdependencies folder (ensure all dependencies are present)
-Write-Host "Copying to dwg2rvtdependencies..."
+# Copy all files to plugins_manager_dependencies folder (ensure all dependencies are present)
+Write-Host "Copying to plugins_manager_dependencies..."
 Copy-Item -Path "$TargetDir*" -Destination $DependenciesFolder -Force -Recurse
-Write-Host "- Copied all build output to dwg2rvtdependencies"
+Write-Host "- Copied all build output to plugins_manager_dependencies"
 
 # Copy BuildNumber.txt for version display
 $BuildNumberSource = [System.IO.Path]::Combine($ProjectDir, "BuildNumber.txt")
 if (Test-Path $BuildNumberSource) {
     Copy-Item -Path $BuildNumberSource -Destination $DependenciesFolder -Force
-    Write-Host "- Copied BuildNumber.txt to dwg2rvtdependencies"
+    Write-Host "- Copied BuildNumber.txt to plugins_manager_dependencies"
 }
 
 # Copy icons to the root of dependencies for easier access as per ADN-CIS recommendation
@@ -106,29 +103,29 @@ if (Test-Path $SourceIcons) {
 }
 
 # Create .addin file
-$AddinFile = [System.IO.Path]::Combine($OutputDir, "dwg2rvt.addin")
+$AddinFile = [System.IO.Path]::Combine($OutputDir, "PluginsManager.addin")
 Write-Host "Creating .addin file..."
 
 # Build the Assembly path dynamically to avoid encoding issues
 $UserProfile = [Environment]::GetFolderPath('ApplicationData')
-$AssemblyPath = [System.IO.Path]::Combine($UserProfile, "Autodesk", "Revit", "Addins", "2024", "dwg2rvtdependencies", "dwg2rvt.dll")
+$AssemblyPath = [System.IO.Path]::Combine($UserProfile, "Autodesk", "Revit", "Addins", "2024", "plugins_manager_dependencies", "PluginsManager.dll")
 
 # Create XML content
 $AddinContent = "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n"
 $AddinContent += "<RevitAddIns>`n"
 $AddinContent += "  <AddIn Type=`"Application`">`n"
-$AddinContent += "    <Name>dwg2rvt</Name>`n"
+$AddinContent += "    <Name>PluginsManager</Name>`n"
 $AddinContent += "    <Assembly>$AssemblyPath</Assembly>`n"
-$AddinContent += "    <ClientId>a1b2c3d4-e5f6-7890-abcd-ef1234567890</ClientId>`n"
-$AddinContent += "    <FullClassName>dwg2rvt.App</FullClassName>`n"
-$AddinContent += "    <VendorId>DWG2RVT</VendorId>`n"
-$AddinContent += "    <VendorDescription>DWG to Revit Analysis Tool</VendorDescription>`n"
+$AddinContent += "    <ClientId>b1c2d3e4-f5a6-7890-1234-567890abcdef</ClientId>`n"
+$AddinContent += "    <FullClassName>PluginsManager.App</FullClassName>`n"
+$AddinContent += "    <VendorId>PLUGINS_MANAGER</VendorId>`n"
+$AddinContent += "    <VendorDescription>Revit Plugins Manager with Dynamic Module Loading</VendorDescription>`n"
 $AddinContent += "  </AddIn>`n"
 $AddinContent += "</RevitAddIns>"
 
 # Save with UTF-8 encoding (with BOM for better compatibility)
 [System.IO.File]::WriteAllText($AddinFile, $AddinContent, [System.Text.Encoding]::UTF8)
-Write-Host "- Created dwg2rvt.addin"
+Write-Host "- Created PluginsManager.addin"
 Write-Host "  Assembly path: $AssemblyPath"
 
 # MANUAL DEPLOYMENT MODE - Files are NOT automatically copied to Revit
@@ -142,7 +139,7 @@ Write-Host ""
 Write-Host "To install manually:"
 Write-Host "1. Close Revit completely"
 Write-Host "2. Copy contents of '$DependenciesFolder' to:"
-Write-Host "   C:\Users\Свеж как огурец\AppData\Roaming\Autodesk\Revit\Addins\2024\dwg2rvtdependencies\"
+Write-Host "   C:\Users\Свеж как огурец\AppData\Roaming\Autodesk\Revit\Addins\2024\plugins_manager_dependencies\"
 Write-Host "3. Copy '$AddinFile' to:"
 Write-Host "   C:\Users\Свеж как огурец\AppData\Roaming\Autodesk\Revit\Addins\2024\"
 Write-Host "4. Restart Revit"
@@ -152,11 +149,11 @@ Write-Host ""
 Write-Host "========================================"
 Write-Host "Build Deployment Complete!"
 Write-Host "========================================"
-Write-Host "Version: 2.$FormattedBuild"
+Write-Host "Version: 3.$FormattedBuild"
 Write-Host "Output: $OutputDir"
 Write-Host ""
 Write-Host "Root folder contents:"
-Write-Host "- dwg2rvt.addin (manifest file)"
-Write-Host "- dwg2rvtdependencies\ (folder)"
-Write-Host "- dwg2rvt-dll\ (folder)"
+Write-Host "- PluginsManager.addin (manifest file)"
+Write-Host "- plugins_manager_dependencies\ (folder with all DLLs)"
+Write-Host "- plugins-manager-dll\ (folder)"
 Write-Host "========================================"

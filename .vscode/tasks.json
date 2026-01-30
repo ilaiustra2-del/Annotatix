@@ -1,0 +1,28 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "build",
+                "${workspaceFolder}/dwg2rvt.csproj",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary",
+                "/property:Configuration=Release"
+            ],
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build-and-deploy",
+            "type": "shell",
+            "command": "dotnet build --configuration Release; if ($?) { .\\PostBuild.ps1 -ProjectDir \"${workspaceFolder}\\\" -TargetDir \"${workspaceFolder}\\bin\\Release\\\" -TargetFileName \"dwg2rvt.dll\" }",
+            "problemMatcher": "$msCompile",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}

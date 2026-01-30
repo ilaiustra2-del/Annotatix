@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>PluginsManager</Name>
+    <Assembly>C:\Users\Свеж как огурец\AppData\Roaming\Autodesk\Revit\Addins\2024\plugins_manager_dependencies\PluginsManager.dll</Assembly>
+    <ClientId>b1c2d3e4-f5a6-7890-1234-567890abcdef</ClientId>
+    <FullClassName>PluginsManager.App</FullClassName>
+    <VendorId>PLUGINS_MANAGER</VendorId>
+    <VendorDescription>Revit Plugins Manager with Dynamic Module Loading</VendorDescription>
+  </AddIn>
+</RevitAddIns>

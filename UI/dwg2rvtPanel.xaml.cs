@@ -45,11 +45,14 @@ namespace dwg2rvt.UI
             _placeElementsEvent = placeElementsEvent;
             _placeSingleBlockTypeEvent = placeSingleBlockTypeEvent;
             
-            // Debug logging
-            System.Diagnostics.Debug.WriteLine($"[dwg2rvtPanel] Constructor called");
-            System.Diagnostics.Debug.WriteLine($"[dwg2rvtPanel] annotateEvent: {annotateEvent != null}");
-            System.Diagnostics.Debug.WriteLine($"[dwg2rvtPanel] placeElementsEvent: {placeElementsEvent != null}");
-            System.Diagnostics.Debug.WriteLine($"[dwg2rvtPanel] placeSingleBlockTypeEvent: {placeSingleBlockTypeEvent != null}");
+            // Debug logging with timestamp to verify dynamic loading
+            var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+            Core.DebugLogger.Log("[dwg2rvtPanel] *** PANEL INSTANCE CREATED ***");
+            Core.DebugLogger.Log("[dwg2rvtPanel] This proves the panel was NOT loaded at Revit startup");
+            Core.DebugLogger.Log("[dwg2rvtPanel] Panel created AFTER authentication");
+            Core.DebugLogger.Log($"[dwg2rvtPanel] annotateEvent: {annotateEvent != null}");
+            Core.DebugLogger.Log($"[dwg2rvtPanel] placeElementsEvent: {placeElementsEvent != null}");
+            Core.DebugLogger.Log($"[dwg2rvtPanel] placeSingleBlockTypeEvent: {placeSingleBlockTypeEvent != null}");
             
             // Set this panel as the active panel for PlaceElementsEventHandler
             PlaceElementsEventHandler.SetActivePanel(this);

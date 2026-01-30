@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Attach to Revit",
+            "type": "coreclr",
+            "request": "attach",
+            "processName": "Revit.exe"
+        },
+        {
+            "name": "Debug with Revit (Launch)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "C:\\Program Files\\Autodesk\\Revit 2024\\Revit.exe",
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false
+        }
+    ]
+}

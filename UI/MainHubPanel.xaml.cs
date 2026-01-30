@@ -68,14 +68,14 @@ namespace dwg2rvt.UI
                 if (File.Exists(buildNumberFile))
                 {
                     var buildNumber = File.ReadAllText(buildNumberFile).Trim();
-                    txtVersion.Text = $"v 2.{buildNumber}";
-                    System.Diagnostics.Debug.WriteLine($"[HUB] Version set from BuildNumber.txt: v 2.{buildNumber}");
+                    txtVersion.Text = $"v 3.{buildNumber}";
+                    System.Diagnostics.Debug.WriteLine($"[HUB] Version set from BuildNumber.txt: v 3.{buildNumber}");
                 }
                 else
                 {
                     // Fallback to assembly version
                     var version = assembly.GetName().Version;
-                    // Version format is Major.Minor.Build.Revision (e.g. 2.65.0.0)
+                    // Version format is Major.Minor.Build.Revision (e.g. 3.001.0.0)
                     txtVersion.Text = $"v {version.Major}.{version.Minor}";
                     System.Diagnostics.Debug.WriteLine($"[HUB] Version set from assembly: v {version.Major}.{version.Minor}");
                 }
@@ -83,7 +83,7 @@ namespace dwg2rvt.UI
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[HUB] Error getting version: {ex.Message}");
-                txtVersion.Text = "v 2.0"; // Fallback
+                txtVersion.Text = "v 3.0"; // Fallback
             }
         }
 
@@ -100,6 +100,24 @@ namespace dwg2rvt.UI
             
             try
             {
+                // Log panel creation with timestamp
+                var clickTimestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+                Core.DebugLogger.Log("");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("[HUB] User clicked DWG2RVT button");
+                Core.DebugLogger.Log("[HUB] Creating dwg2rvtPanel instance NOW (not at startup)...");
+                
+                // Log where the dwg2rvtPanel class is loaded from
+                var panelType = typeof(dwg2rvtPanel);
+                var panelAssembly = panelType.Assembly;
+                Core.DebugLogger.Log($"[HUB] dwg2rvtPanel type: {panelType.FullName}");
+                Core.DebugLogger.Log($"[HUB] Loaded from assembly: {panelAssembly.GetName().Name}");
+                Core.DebugLogger.Log($"[HUB] Assembly location: {panelAssembly.Location}");
+                Core.DebugLogger.Log($"[HUB] Assembly version: {panelAssembly.GetName().Version}");
+                
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("");
+                
                 // Switch to dwg2rvt panel
                 txtTitle.Text = "DWG2RVT";
                 var panel = new dwg2rvtPanel(_uiApp, _annotateEvent, _placeElementsEvent, _placeSingleBlockTypeEvent);
@@ -133,6 +151,24 @@ namespace dwg2rvt.UI
             
             try
             {
+                // Log panel creation with timestamp
+                var clickTimestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+                Core.DebugLogger.Log("");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("[HUB] User clicked HVAC button");
+                Core.DebugLogger.Log("[HUB] Creating HVACPanel instance NOW (not at startup)...");
+                
+                // Log where the HVACPanel class is loaded from
+                var panelType = typeof(HVACPanel);
+                var panelAssembly = panelType.Assembly;
+                Core.DebugLogger.Log($"[HUB] HVACPanel type: {panelType.FullName}");
+                Core.DebugLogger.Log($"[HUB] Loaded from assembly: {panelAssembly.GetName().Name}");
+                Core.DebugLogger.Log($"[HUB] Assembly location: {panelAssembly.Location}");
+                Core.DebugLogger.Log($"[HUB] Assembly version: {panelAssembly.GetName().Version}");
+                
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("");
+                
                 // Switch to HVAC panel
                 txtTitle.Text = "HVAC";
                 var hvacPanel = new HVACPanel();
@@ -161,6 +197,23 @@ namespace dwg2rvt.UI
             RightSidebar.Visibility = Visibility.Visible;
         }
         
+        /// <summary>
+        /// Open debug log file in Notepad
+        /// </summary>
+        private void BtnOpenLog_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Core.DebugLogger.OpenLogFile();
+                Core.DebugLogger.Log("[HUB] User opened debug log file");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Не удалось открыть лог-файл: {ex.Message}\n\nПуть: {Core.DebugLogger.GetLogFilePath()}", 
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        
         private void BtnAuth_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -175,6 +228,15 @@ namespace dwg2rvt.UI
                 
                 if (result == true)
                 {
+                    // Log authentication success with timestamp
+                    var authTimestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+                    Core.DebugLogger.Log("");
+                    Core.DebugLogger.LogSeparator();
+                    Core.DebugLogger.Log("[AUTH] *** AUTHENTICATION SUCCESSFUL ***");
+                    Core.DebugLogger.Log("[AUTH] Now loading modules dynamically...");
+                    Core.DebugLogger.LogSeparator();
+                    Core.DebugLogger.Log("");
+                    
                     // Authentication successful
                     var currentUser = Core.AuthService.CurrentUser;
                     if (currentUser != null && currentUser.IsSuccess)
@@ -238,7 +300,7 @@ namespace dwg2rvt.UI
         }
         
         /// <summary>
-        /// Activate module buttons based on user's active modules
+        /// Load and activate modules based on user's active modules
         /// </summary>
         private void ActivateModuleButtons(List<Core.UserModule> modules)
         {
@@ -248,7 +310,14 @@ namespace dwg2rvt.UI
                 return;
             }
             
-            System.Diagnostics.Debug.WriteLine($"[HUB] Activating modules: {modules.Count}");
+            System.Diagnostics.Debug.WriteLine($"[HUB] Loading and activating modules: {modules.Count}");
+            
+            // Get modules directory path
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            var assemblyPath = Path.GetDirectoryName(assembly.Location);
+            var modulesPath = Path.Combine(assemblyPath, "Modules");
+            
+            System.Diagnostics.Debug.WriteLine($"[HUB] Modules path: {modulesPath}");
             
             foreach (var module in modules)
             {
@@ -256,28 +325,22 @@ namespace dwg2rvt.UI
                     continue;
                 
                 string moduleTag = module.ModuleTag.ToLower();
-                System.Diagnostics.Debug.WriteLine($"[HUB] Activating module: {moduleTag}");
+                System.Diagnostics.Debug.WriteLine($"[HUB] Processing module: {moduleTag}");
                 
                 switch (moduleTag)
                 {
                     case "dwg2rvt":
-                        pnlDwg2rvt.IsEnabled = true;
-                        pnlDwg2rvt.Opacity = 1.0;
-                        System.Diagnostics.Debug.WriteLine("[HUB] DWG2RVT module activated");
+                        LoadAndActivateDwg2rvtModule(modulesPath);
                         break;
                         
                     case "hvac":
-                        pnlHVAC.IsEnabled = true;
-                        pnlHVAC.Opacity = 1.0;
-                        System.Diagnostics.Debug.WriteLine("[HUB] HVAC module activated");
+                        LoadAndActivateHVACModule(modulesPath);
                         break;
                         
                     case "full":
-                        // Activate all modules
-                        pnlDwg2rvt.IsEnabled = true;
-                        pnlDwg2rvt.Opacity = 1.0;
-                        pnlHVAC.IsEnabled = true;
-                        pnlHVAC.Opacity = 1.0;
+                        // Load all modules
+                        LoadAndActivateDwg2rvtModule(modulesPath);
+                        LoadAndActivateHVACModule(modulesPath);
                         System.Diagnostics.Debug.WriteLine("[HUB] All modules activated (full access)");
                         break;
                         
@@ -285,6 +348,74 @@ namespace dwg2rvt.UI
                         System.Diagnostics.Debug.WriteLine($"[HUB] Unknown module: {moduleTag}");
                         break;
                 }
+            }
+        }
+        
+        /// <summary>
+        /// Load and activate DWG2RVT module
+        /// </summary>
+        private void LoadAndActivateDwg2rvtModule(string modulesPath)
+        {
+            try
+            {
+                // For now, dwg2rvt module is built-in, so just enable the button
+                // In future, this will load external .cs file
+                System.Diagnostics.Debug.WriteLine("[HUB] DWG2RVT module is built-in, enabling button");
+                pnlDwg2rvt.IsEnabled = true;
+                pnlDwg2rvt.Opacity = 1.0;
+                System.Diagnostics.Debug.WriteLine("[HUB] DWG2RVT module activated");
+                
+                /* Future implementation for dynamic loading:
+                var moduleFile = Path.Combine(modulesPath, "dwg2rvt.cs");
+                if (Core.ModuleLoader.LoadModule("dwg2rvt", moduleFile))
+                {
+                    pnlDwg2rvt.IsEnabled = true;
+                    pnlDwg2rvt.Opacity = 1.0;
+                    System.Diagnostics.Debug.WriteLine("[HUB] DWG2RVT module loaded and activated");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] Failed to load DWG2RVT module");
+                }
+                */
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading DWG2RVT module: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// Load and activate HVAC module
+        /// </summary>
+        private void LoadAndActivateHVACModule(string modulesPath)
+        {
+            try
+            {
+                // For now, HVAC module is built-in, so just enable the button
+                // In future, this will load external .cs file
+                System.Diagnostics.Debug.WriteLine("[HUB] HVAC module is built-in, enabling button");
+                pnlHVAC.IsEnabled = true;
+                pnlHVAC.Opacity = 1.0;
+                System.Diagnostics.Debug.WriteLine("[HUB] HVAC module activated");
+                
+                /* Future implementation for dynamic loading:
+                var moduleFile = Path.Combine(modulesPath, "hvac.cs");
+                if (Core.ModuleLoader.LoadModule("hvac", moduleFile))
+                {
+                    pnlHVAC.IsEnabled = true;
+                    pnlHVAC.Opacity = 1.0;
+                    System.Diagnostics.Debug.WriteLine("[HUB] HVAC module loaded and activated");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] Failed to load HVAC module");
+                }
+                */
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading HVAC module: {ex.Message}");
             }
         }
     }
