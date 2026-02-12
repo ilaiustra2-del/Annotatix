@@ -38,10 +38,28 @@ $OutputDir = [System.IO.Path]::Combine($BaseOutput, $VersionFolder)
 
 Write-Host "Output Directory: $OutputDir"
 
+# CRITICAL: Check if version folder exists and auto-increment if necessary
+while (Test-Path $OutputDir) {
+    Write-Host "WARNING: Version folder already exists: $OutputDir"
+    Write-Host "Auto-incrementing build number..."
+    
+    # Increment build number
+    $BuildNumber = [int]$BuildNumber + 1
+    $FormattedBuild = $BuildNumber.ToString().PadLeft(3, '0')
+    $VersionFolder = "annotatix_ver3.$FormattedBuild"
+    $OutputDir = [System.IO.Path]::Combine($BaseOutput, $VersionFolder)
+    
+    Write-Host "New output directory: $OutputDir"
+}
+
+# Update BuildNumber.txt with new incremented value
+Set-Content -Path $BuildNumberFile -Value $BuildNumber -NoNewline
+Write-Host "Build number updated to: $BuildNumber"
+
 # Create version folder
 if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
-    Write-Host "Created directory: $OutputDir"
+    Write-Host "Created NEW version directory: $OutputDir"
 }
 
 # Create annotatix_dependencies folder with modular structure
@@ -49,8 +67,9 @@ $DependenciesFolder = [System.IO.Path]::Combine($OutputDir, "annotatix_dependenc
 $MainFolder = [System.IO.Path]::Combine($DependenciesFolder, "main")
 $Dwg2rvtFolder = [System.IO.Path]::Combine($DependenciesFolder, "dwg2rvt")
 $HvacFolder = [System.IO.Path]::Combine($DependenciesFolder, "hvac")
+$FamilySyncFolder = [System.IO.Path]::Combine($DependenciesFolder, "family_sync")
 
-foreach ($folder in @($DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder)) {
+foreach ($folder in @($DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder, $FamilySyncFolder)) {
     if (-not (Test-Path $folder)) {
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
         Write-Host "Created directory: $folder"
@@ -75,6 +94,11 @@ $Dwg2rvtFiles = @(
 $HvacFiles = @(
     "HVAC.Module.dll",
     "HVAC.Module.pdb"
+)
+
+$FamilySyncFiles = @(
+    "FamilySync.Module.dll",
+    "FamilySync.Module.pdb"
 )
 
 # Copy MAIN module files
@@ -107,9 +131,19 @@ foreach ($file in $HvacFiles) {
     }
 }
 
+# Copy FamilySync module files
+Write-Host "Copying FamilySync module..."
+foreach ($file in $FamilySyncFiles) {
+    $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
+    if (Test-Path $sourcePath) {
+        Copy-Item -Path $sourcePath -Destination $FamilySyncFolder -Force
+        Write-Host "  → family_sync/$file"
+    }
+}
+
 # Copy shared dependencies to main folder (all modules will find them there)
 Write-Host "Copying shared dependencies to main/..."
-$ExcludePatterns = $MainFiles + $Dwg2rvtFiles + $HvacFiles + @("dwg2rvt.dll", "dwg2rvt.pdb")  # Exclude old artifacts
+$ExcludePatterns = $MainFiles + $Dwg2rvtFiles + $HvacFiles + $FamilySyncFiles + @("dwg2rvt.dll", "dwg2rvt.pdb")  # Exclude old artifacts
 Get-ChildItem -Path $TargetDir -File | Where-Object {
     $fileName = $_.Name
     $ExcludePatterns -notcontains $fileName
@@ -192,6 +226,7 @@ Write-Host "- annotatix_dependencies/"
 Write-Host "  + main/ (Core: PluginsManager.dll + ALL dependencies + UI + icons)"
 Write-Host "  + dwg2rvt/ (Module: dwg2rvt.Module.dll ONLY)"
 Write-Host "  + hvac/ (Module: HVAC.Module.dll ONLY)"
+Write-Host "  + family_sync/ (Module: FamilySync.Module.dll ONLY)"
 Write-Host ""
 Write-Host "NOTE: All shared dependencies are in main/ for optimal loading"
 Write-Host "========================================"

@@ -1,0 +1,421 @@
+<UserControl x:Class="FamilySync.Module.UI.FamilySyncPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="White">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="20,15,20,20">
+
+            <!-- Header -->
+            <Border Background="#F8F9FA" 
+                    CornerRadius="6" 
+                    Padding="15"
+                    Margin="0,0,0,15">
+                <StackPanel>
+                    <TextBlock Text="Синхронизация вложенных семейств" 
+                               FontWeight="SemiBold" 
+                               FontSize="16"
+                               Foreground="#212529"
+                               Margin="0,0,0,5"/>
+                    <TextBlock Text="Выберите элемент(ы) на активном виде и нажмите 'Анализировать'" 
+                               FontSize="12"
+                               Foreground="#6C757D"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Selected Family Info -->
+            <Border Background="#F8F9FA" 
+                    CornerRadius="6" 
+                    Padding="12"
+                    Margin="0,0,0,10">
+                <StackPanel>
+                    <TextBlock Text="Выбранное семейство" 
+                               FontWeight="SemiBold" 
+                               FontSize="12"
+                               Foreground="#6C757D"
+                               Margin="0,0,0,8"/>
+                    <TextBox x:Name="txtSelectedFamily" 
+                             IsReadOnly="True" 
+                             Background="White"
+                             BorderBrush="#DEE2E6"
+                             BorderThickness="1"
+                             Padding="10"
+                             FontSize="13"
+                             Text="(Семейство не выбрано)">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="TextBox">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                    CornerRadius="4">
+                                                <ScrollViewer x:Name="PART_ContentHost" 
+                                                              Margin="{TemplateBinding Padding}"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+                </StackPanel>
+            </Border>
+
+            <!-- Progress Text -->
+            <StackPanel Margin="0,0,0,10">
+                <TextBlock x:Name="txtProgress" 
+                           Text="" 
+                           Foreground="#0D6EFD"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           MinHeight="18"/>
+            </StackPanel>
+
+            <!-- Nested Families List -->
+            <Border Background="#F8F9FA" 
+                    BorderBrush="#DEE2E6"
+                    BorderThickness="1"
+                    CornerRadius="6" 
+                    Margin="0,0,0,15"
+                    MinHeight="200"
+                    MaxHeight="300">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    
+                    <Border Grid.Row="0" 
+                            Background="White" 
+                            BorderBrush="#DEE2E6"
+                            BorderThickness="0,0,0,1"
+                            CornerRadius="6,6,0,0"
+                            Padding="15,10">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Вложенные семейства" 
+                                       FontWeight="SemiBold" 
+                                       FontSize="12"
+                                       Foreground="#495057"/>
+                            <TextBlock x:Name="txtNestedCount" 
+                                       Text="" 
+                                       FontSize="12"
+                                       Foreground="#6C757D"
+                                       Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    
+                    <TreeView x:Name="treeNestedFamilies"
+                              Grid.Row="1"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              Margin="10"
+                              FontSize="12">
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="True"/>
+                                <Setter Property="Margin" Value="0,2,0,2"/>
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+                    </TreeView>
+                </Grid>
+            </Border>
+
+            <!-- Parameter Selection -->
+            <Border Background="#F8F9FA" 
+                    CornerRadius="6" 
+                    Padding="12"
+                    Margin="0,0,0,15">
+                <StackPanel>
+                    <TextBlock Text="Параметр для синхронизации" 
+                               FontWeight="SemiBold" 
+                               FontSize="12"
+                               Foreground="#6C757D"
+                               Margin="0,0,0,8"/>
+                    <ComboBox x:Name="cmbParameter" 
+                              Padding="10"
+                              Height="36"
+                              Background="White"
+                              BorderBrush="#DEE2E6"
+                              FontSize="13"
+                              IsEditable="True"
+                              IsTextSearchEnabled="False"
+                              IsTextSearchCaseSensitive="False"
+                              StaysOpenOnEdit="True">
+                        <ComboBox.Style>
+                            <Style TargetType="ComboBox">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ComboBox">
+                                            <Grid>
+                                                <ToggleButton x:Name="ToggleButton"
+                                                              Grid.Column="2"
+                                                              Focusable="false"
+                                                              IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                                              ClickMode="Press">
+                                                    <ToggleButton.Template>
+                                                        <ControlTemplate TargetType="ToggleButton">
+                                                            <Border Background="{TemplateBinding Background}"
+                                                                    BorderBrush="#DEE2E6"
+                                                                    BorderThickness="1"
+                                                                    CornerRadius="4">
+                                                                <Grid>
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition/>
+                                                                        <ColumnDefinition Width="20"/>
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <ContentPresenter Grid.Column="0"
+                                                                                      Content="{TemplateBinding Content}"
+                                                                                      Margin="10,0,0,0"
+                                                                                      VerticalAlignment="Center"/>
+                                                                    <Path Grid.Column="1"
+                                                                          Data="M 0 0 L 4 4 L 8 0 Z"
+                                                                          Fill="#6C757D"
+                                                                          HorizontalAlignment="Center"
+                                                                          VerticalAlignment="Center"/>
+                                                                </Grid>
+                                                            </Border>
+                                                        </ControlTemplate>
+                                                    </ToggleButton.Template>
+                                                </ToggleButton>
+                                                <ContentPresenter x:Name="ContentSite"
+                                                                  IsHitTestVisible="False"
+                                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                                  ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                                                  Margin="10,0,25,0"
+                                                                  VerticalAlignment="Center"
+                                                                  HorizontalAlignment="Left"/>
+                                                <TextBox x:Name="PART_EditableTextBox"
+                                                         IsReadOnly="{TemplateBinding IsReadOnly}"
+                                                         Visibility="Hidden"
+                                                         Background="Transparent"
+                                                         Margin="10,0,25,0"
+                                                         VerticalAlignment="Center"
+                                                         HorizontalAlignment="Left"/>
+                                                <Popup x:Name="Popup"
+                                                       Placement="Bottom"
+                                                       IsOpen="{TemplateBinding IsDropDownOpen}"
+                                                       AllowsTransparency="True"
+                                                       Focusable="False"
+                                                       PopupAnimation="Slide">
+                                                    <Grid x:Name="DropDown"
+                                                          SnapsToDevicePixels="True"
+                                                          MinWidth="{TemplateBinding ActualWidth}"
+                                                          MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                                        <Border x:Name="DropDownBorder"
+                                                                Background="White"
+                                                                BorderBrush="#DEE2E6"
+                                                                BorderThickness="1"
+                                                                CornerRadius="4"/>
+                                                        <ScrollViewer Margin="4,6,4,6" SnapsToDevicePixels="True">
+                                                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                                        </ScrollViewer>
+                                                    </Grid>
+                                                </Popup>
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsEditable" Value="True">
+                                                    <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                                                    <Setter TargetName="ContentSite" Property="Visibility" Value="Hidden"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ComboBox.Style>
+                    </ComboBox>
+                    
+                    <!-- Create Parameter Checkbox -->
+                    <CheckBox x:Name="chkCreateParameter" 
+                              Content="Создать параметр проекта, если он не существует"
+                              FontSize="11"
+                              Foreground="#495057"
+                              Margin="0,10,0,0"
+                              IsChecked="True">
+                        <CheckBox.ToolTip>
+                            <TextBlock Text="Если включено, параметр будет создан для категорий семейств"
+                                       TextWrapping="Wrap"
+                                       MaxWidth="250"/>
+                        </CheckBox.ToolTip>
+                    </CheckBox>
+                </StackPanel>
+            </Border>
+
+            <!-- Sync Value Input -->
+            <Border Background="#F8F9FA" 
+                    CornerRadius="6" 
+                    Padding="12"
+                    Margin="0,0,0,15">
+                <StackPanel>
+                    <TextBlock Text="Значение для синхронизации" 
+                               FontWeight="SemiBold" 
+                               FontSize="12"
+                               Foreground="#6C757D"
+                               Margin="0,0,0,8"/>
+                    <TextBox x:Name="txtSyncValue" 
+                             Background="White"
+                             BorderBrush="#DEE2E6"
+                             BorderThickness="1"
+                             Padding="10"
+                             FontSize="13"
+                             Height="80"
+                             TextWrapping="Wrap"
+                             AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="TextBox">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                    CornerRadius="4">
+                                                <ScrollViewer x:Name="PART_ContentHost" 
+                                                              Margin="{TemplateBinding Padding}"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+                    
+                    <!-- Copy from Parent Checkbox -->
+                    <CheckBox x:Name="chkCopyFromParent" 
+                              Content="Копировать значение из родительского семейства"
+                              FontSize="11"
+                              Foreground="#495057"
+                              Margin="0,10,0,0"
+                              IsChecked="False"
+                              Checked="ChkCopyFromParent_CheckedChanged"
+                              Unchecked="ChkCopyFromParent_CheckedChanged">
+                        <CheckBox.ToolTip>
+                            <TextBlock Text="Если включено, значение параметра будет копироваться из каждого родительского элемента в его вложенные семейства. Поле ввода значения будет отключено."
+                                       TextWrapping="Wrap"
+                                       MaxWidth="300"/>
+                        </CheckBox.ToolTip>
+                    </CheckBox>
+                    
+                    <TextBlock Text="Это значение будет записано в выбранный параметр для всех семейств" 
+                               FontSize="10"
+                               Foreground="#6C757D"
+                               Margin="0,5,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Action Buttons -->
+            <Grid Margin="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="15"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- Analyze Button -->
+                <Button Grid.Column="0"
+                        x:Name="btnAnalyze"
+                        Content="Анализировать" 
+                        Height="42"
+                        FontSize="13"
+                        FontWeight="SemiBold"
+                        Click="BtnAnalyze_Click"
+                        Background="#0D6EFD"
+                        Foreground="White"
+                        BorderThickness="0"
+                        Cursor="Hand">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                CornerRadius="6"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Setter Property="Background" Value="#0D6EFD"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#0B5ED7"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Background" Value="#E9ECEF"/>
+                                    <Setter Property="Foreground" Value="#ADB5BD"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                
+                <!-- Synchronize Button -->
+                <Button Grid.Column="2"
+                        x:Name="btnSynchronize"
+                        Content="Синхронизировать" 
+                        Height="42"
+                        FontSize="13"
+                        FontWeight="SemiBold"
+                        Click="BtnSynchronize_Click"
+                        Background="#198754"
+                        Foreground="White"
+                        BorderThickness="0"
+                        Cursor="Hand"
+                        IsEnabled="False">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                CornerRadius="6"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Setter Property="Background" Value="#198754"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#157347"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Background" Value="#E9ECEF"/>
+                                    <Setter Property="Foreground" Value="#ADB5BD"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </Grid>
+
+            <!-- Status Area -->
+            <Border Background="#F8F9FA" 
+                    BorderBrush="#DEE2E6"
+                    BorderThickness="1"
+                    CornerRadius="6" 
+                    Margin="0,15,0,0"
+                    Padding="12">
+                <StackPanel>
+                    <TextBlock Text="Статус" 
+                               FontWeight="SemiBold" 
+                               FontSize="12"
+                               Foreground="#6C757D"
+                               Margin="0,0,0,8"/>
+                    <TextBlock x:Name="txtStatus" 
+                               Text="Готов к работе. Выделите элементы и нажмите 'Анализировать'."
+                               TextWrapping="Wrap" 
+                               FontFamily="Consolas"
+                               FontSize="11"
+                               Foreground="#495057"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

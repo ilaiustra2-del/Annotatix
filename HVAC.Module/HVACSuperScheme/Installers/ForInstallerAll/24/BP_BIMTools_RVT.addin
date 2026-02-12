@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+   <AddIn Type="Application">
+      <Assembly>BP_BIMTools_RVT\BP_BIMTools_RVT_R24.dll</Assembly>
+      <ClientId>178b5dba-358a-4b42-8471-e07f39afb18b</ClientId>
+      <FullClassName>BP_BIMTools_RVT.App</FullClassName>
+      <Name>BP_PanelTools_RVT24</Name>
+      <VendorId>DNS</VendorId>
+      <VendorDescription>DNS</VendorDescription>
+   </AddIn>
+</RevitAddIns>

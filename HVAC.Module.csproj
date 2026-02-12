@@ -51,13 +51,30 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
   </ItemGroup>
 
-  <!-- Include HVAC.Module files -->
+  <!-- Include HVAC.Module wrapper files -->
   <ItemGroup>
-    <Compile Include="HVAC.Module\**\*.cs" />
-    <Page Include="HVAC.Module\**\*.xaml" SubType="Designer" Generator="MSBuild:Compile" />
+    <Compile Include="HVAC.Module\HVACModule.cs" />
+    <Compile Include="HVAC.Module\Commands\*.cs" />
+    <Compile Include="HVAC.Module\Stubs\*.cs" />
+    <Compile Include="HVAC.Module\UI\*.cs" />
+    <Page Include="HVAC.Module\UI\*.xaml" SubType="Designer" Generator="MSBuild:Compile" />
+    <Page Include="HVAC.Module\Commands\*.xaml" SubType="Designer" Generator="MSBuild:Compile" />
+  </ItemGroup>
+
+  <!-- Include HVACSuperScheme source files (excluding MVVM-dependent files) -->
+  <ItemGroup>
+    <Compile Include="HVAC.Module\HVACSuperScheme\**\*.cs" 
+             Exclude="HVAC.Module\HVACSuperScheme\App.cs;
+                      HVAC.Module\HVACSuperScheme\Commands\**;
+                      HVAC.Module\HVACSuperScheme\Commands\Settings\SettingStorage.cs;
+                      HVAC.Module\HVACSuperScheme\Commands\Settings\ViewModel.cs;
+                      HVAC.Module\HVACSuperScheme\obj\**;
+                      HVAC.Module\HVACSuperScheme\bin\**" />
+    <Page Include="HVAC.Module\HVACSuperScheme\WPF\*.xaml" SubType="Designer" Generator="MSBuild:Compile" />
   </ItemGroup>
 
 </Project>

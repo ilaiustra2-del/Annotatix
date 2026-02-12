@@ -1,0 +1,33 @@
+﻿<Window x:Class="HVACSuperScheme.Commands.Settings.View"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             Title="Настройки"
+             SizeToContent="WidthAndHeight"
+             WindowStartupLocation="CenterScreen"
+             ResizeMode="NoResize">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="../../WPF/Styles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <StackPanel>
+        <StackPanel Orientation="Horizontal" Height="50" Width="200">
+            <TextBlock Text="Синхронизация включена"
+                VerticalAlignment="Center"/>
+            <CheckBox IsChecked="{Binding Settings.IsUpdaterSync, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                VerticalAlignment="Center"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal"
+             HorizontalAlignment="Right">
+            <Button Command="{Binding SaveCommand}"
+                    Content="Сохранить" />
+            <Button Command="{Binding CancelCommand}"
+                    Content="Отмена" />
+        </StackPanel>
+    </StackPanel>
+</Window>

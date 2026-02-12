@@ -1,0 +1,53 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net48</TargetFramework>
+		<OutputType>Library</OutputType>
+		<Configurations>R23;R24</Configurations>
+		<RootNamespace>HVACSuperScheme</RootNamespace>
+		<RevitVersion>R$(Configuration.Replace("R", ""))</RevitVersion>
+		<AssemblyName>HVACSuperScheme_$(RevitVersion)</AssemblyName>
+		<DefineConstants>TRACE;$(RevitVersion)</DefineConstants>
+		<LangVersion>latest</LangVersion>
+		<OutputPath>bin\R$(Configuration.Replace("R", ""))</OutputPath>
+		<AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+		<Deterministic>true</Deterministic>
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+		<Optimize>false</Optimize>
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+		<UseWPF>true</UseWPF>
+	</PropertyGroup>
+
+	<PropertyGroup Condition=" '$(RevitVersion)' == 'R23' ">
+		<RevitSdkVersion>2023.0.0.2001 </RevitSdkVersion>
+	</PropertyGroup>
+	<PropertyGroup Condition=" '$(RevitVersion)' == 'R24' ">
+		<RevitSdkVersion>2024.1.10.25 </RevitSdkVersion>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Autodesk.Revit.SDK" Version="2023.0.0.2001" />
+		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="Installers\ForInstallerAll\23\HVAC_SuperScheme\" />
+	  <Folder Include="Installers\ForInstallerAll\24\HVAC_SuperScheme\" />
+	</ItemGroup>
+
+	<Target Name="PostBuildDeploy" AfterTargets="Build">
+		<PropertyGroup>
+			<DeployPath>Installers\ForInstallerAll\$(Configuration.Replace('R',''))\HVAC_SuperScheme\</DeployPath>
+		</PropertyGroup>
+
+		<MakeDir Directories="$(DeployPath)" />
+		<ItemGroup>
+			<AllFilesToCopy Include="$(TargetDir)\**\*.*" />
+		</ItemGroup>
+
+		<Copy SourceFiles="@(AllFilesToCopy)" DestinationFolder="$(DeployPath)\%(RecursiveDir)" SkipUnchangedFiles="true" />
+
+		<Message Text="$(Configuration) сборка развернута в $(DeployPath)" Importance="high" />
+	</Target>
+</Project>

@@ -121,17 +121,24 @@
                                        Margin="0,8,0,0"/>
                         </StackPanel>
 
-                        <!-- Placeholder 2 -->
-                        <StackPanel Margin="0,0,15,15">
+                        <!-- Family Sync Button -->
+                        <StackPanel x:Name="pnlFamilySync" Margin="0,0,15,15" Cursor="Hand" MouseLeftButtonUp="FamilySync_Click">
                             <Border Width="110" Height="110" 
                                     Background="#E0E0E0" 
-                                    CornerRadius="12"/>
-                            <TextBlock Text="DWG2RVT" 
+                                    CornerRadius="12"
+                                    Padding="15">
+                                <TextBlock Text="FS" 
+                                           FontSize="32"
+                                           FontWeight="Bold"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="#5C6BC0"/>
+                            </Border>
+                            <TextBlock Text="Family Sync" 
                                        FontSize="11" 
                                        FontWeight="Normal" 
                                        HorizontalAlignment="Center" 
-                                       Margin="0,8,0,0"
-                                       Opacity="0"/>
+                                       Margin="0,8,0,0"/>
                         </StackPanel>
 
                         <!-- Placeholder 3 -->

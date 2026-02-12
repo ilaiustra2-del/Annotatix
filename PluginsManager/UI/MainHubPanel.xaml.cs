@@ -15,12 +15,31 @@ namespace PluginsManager.UI
         private object _hubContent;
         private ExternalEvent _openDwg2rvtPanelEvent;
         private Commands.OpenDwg2rvtPanelHandler _openDwg2rvtPanelHandler;
+        private ExternalEvent _openHvacPanelEvent;
+        private Commands.OpenHvacPanelHandler _openHvacPanelHandler;
+        
+        // FamilySync ExternalEvent
+        private ExternalEvent _familySyncEvent;
+        private object _familySyncHandler; // Will be FamilySync.Module.UI.FamilySyncHandler
 
-        public MainHubPanel(UIApplication uiApp)
+        public MainHubPanel(UIApplication uiApp, object familySyncHandler = null, ExternalEvent familySyncEvent = null)
         {
             InitializeComponent();
             _uiApp = uiApp;
             _hubContent = MainContent.Content;
+            
+            // Store provided FamilySync ExternalEvent (created in OpenHubCommand)
+            _familySyncHandler = familySyncHandler;
+            _familySyncEvent = familySyncEvent;
+            
+            if (_familySyncEvent != null)
+            {
+                System.Diagnostics.Debug.WriteLine("[HUB] Received FamilySync ExternalEvent from command");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("[HUB] No FamilySync ExternalEvent provided");
+            }
             
             // Create ExternalEvent for opening dwg2rvt panel
             // This is created in the constructor which is called from IExternalCommand.Execute()
@@ -28,8 +47,14 @@ namespace PluginsManager.UI
             _openDwg2rvtPanelHandler.SetUIApplication(uiApp);
             _openDwg2rvtPanelEvent = ExternalEvent.Create(_openDwg2rvtPanelHandler);
             
-            // Register this panel with the command so it can update UI
+            // Create ExternalEvent for opening HVAC panel
+            _openHvacPanelHandler = new Commands.OpenHvacPanelHandler();
+            _openHvacPanelHandler.SetUIApplication(uiApp);
+            _openHvacPanelEvent = ExternalEvent.Create(_openHvacPanelHandler);
+            
+            // Register this panel with the commands so they can update UI
             Commands.OpenDwg2rvtPanelCommand.SetHubPanel(this);
+            Commands.OpenHvacPanelCommand.SetHubPanel(this);
             
             // Load icon from assembly location
             try
@@ -90,6 +115,10 @@ namespace PluginsManager.UI
                 System.Diagnostics.Debug.WriteLine($"[HUB] Error getting version: {ex.Message}");
                 txtVersion.Text = "v 3.0"; // Fallback
             }
+            
+            // Load FamilySync module automatically (doesn't require authentication)
+            // Note: Module loading and ExternalEvent creation now happens in OpenHubCommand
+            // LoadFamilySyncModule(); // REMOVED - done in OpenHubCommand
             
             // Try auto-authentication if saved credentials exist
             this.Loaded += async (s, e) => await TryAutoAuthenticateOnStartup();
@@ -152,6 +181,141 @@ namespace PluginsManager.UI
             }
         }
 
+        /// <summary>
+        /// Load FamilySync module automatically at startup
+        /// </summary>
+        private void LoadFamilySyncModule()
+        {
+            try
+            {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var assemblyPath = Path.GetDirectoryName(assembly.Location);
+                
+                // FamilySync module is in family_sync folder (sibling to main)
+                var modulesPath = Path.GetDirectoryName(assemblyPath);
+                var familySyncDllPath = Path.Combine(modulesPath, "family_sync", "FamilySync.Module.dll");
+                
+                System.Diagnostics.Debug.WriteLine($"[HUB] Looking for FamilySync module at: {familySyncDllPath}");
+                
+                if (File.Exists(familySyncDllPath))
+                {
+                    if (Core.DynamicModuleLoader.LoadModule("family_sync", familySyncDllPath))
+                    {
+                        System.Diagnostics.Debug.WriteLine("[HUB] FamilySync module loaded successfully");
+                        
+                        // Create FamilySync ExternalEvent AFTER module is loaded
+                        try
+                        {
+                            System.Diagnostics.Debug.WriteLine("[HUB] Attempting to create FamilySync ExternalEvent...");
+                            var familySyncHandlerType = Type.GetType("FamilySync.Module.UI.FamilySyncHandler, FamilySync.Module");
+                            
+                            if (familySyncHandlerType != null)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[HUB] Found type: {familySyncHandlerType.FullName}");
+                                _familySyncHandler = Activator.CreateInstance(familySyncHandlerType);
+                                System.Diagnostics.Debug.WriteLine($"[HUB] Created handler instance");
+                                
+                                var iExternalEventHandler = _familySyncHandler as IExternalEventHandler;
+                                if (iExternalEventHandler != null)
+                                {
+                                    _familySyncEvent = ExternalEvent.Create(iExternalEventHandler);
+                                    System.Diagnostics.Debug.WriteLine("[HUB] FamilySync ExternalEvent created successfully");
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Debug.WriteLine("[HUB] Handler does not implement IExternalEventHandler");
+                                }
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine("[HUB] FamilySyncHandler type not found via reflection");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[HUB] Failed to create FamilySync ExternalEvent: {ex.Message}");
+                            System.Diagnostics.Debug.WriteLine($"[HUB] Stack trace: {ex.StackTrace}");
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[HUB] Failed to load FamilySync module");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[HUB] FamilySync module not found at: {familySyncDllPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading FamilySync module: {ex.Message}");
+            }
+        }
+        
+        private void FamilySync_Click(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                Core.DebugLogger.Log("");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("[HUB] User clicked Family Sync button");
+                Core.DebugLogger.Log("[HUB] Loading Family Sync module panel...");
+                
+                // Get module instance
+                var module = Core.DynamicModuleLoader.GetModuleInstance("family_sync");
+                if (module == null)
+                {
+                    MessageBox.Show("Модуль Family Sync не загружен. Проверьте наличие файла FamilySync.Module.dll.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log($"[HUB] Module found: {module.ModuleName} v{module.ModuleVersion}");
+                
+                // Create panel from module, passing ExternalEvent
+                object[] parameters = (_familySyncEvent != null && _familySyncHandler != null) 
+                    ? new object[] { _uiApp, _familySyncHandler, _familySyncEvent }
+                    : new object[] { _uiApp };
+                    
+                var panel = module.CreatePanel(parameters);
+                if (panel == null)
+                {
+                    MessageBox.Show("Не удалось создать панель модуля Family Sync.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log("[HUB] Panel created successfully");
+                
+                // Extract content from Window
+                var panelContent = panel.Content;
+                if (panelContent == null)
+                {
+                    MessageBox.Show("Панель модуля не содержит контента.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log($"[HUB] Panel content type: {panelContent.GetType().Name}");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("");
+                
+                // Switch to FamilySync panel
+                txtTitle.Text = "Family Sync";
+                MainContent.Content = panelContent;
+                btnBack.Visibility = Visibility.Visible;
+                
+                // Hide Right Sidebar when FamilySync panel is open
+                RightSidebar.Visibility = Visibility.Collapsed;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при загрузке панели Family Sync:\n{ex.Message}\n\n{ex.StackTrace}", 
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         private void Dwg2rvt_Click(object sender, MouseButtonEventArgs e)
         {
             // Check if button is enabled
@@ -200,56 +364,39 @@ namespace PluginsManager.UI
                 Core.DebugLogger.Log("");
                 Core.DebugLogger.LogSeparator('-');
                 Core.DebugLogger.Log("[HUB] User clicked HVAC button");
-                Core.DebugLogger.Log("[HUB] Loading HVAC module panel...");
+                Core.DebugLogger.Log("[HUB] Opening HVAC module via ExternalEvent...");
                 
-                // Get module instance
-                var module = Core.DynamicModuleLoader.GetModuleInstance("hvac");
-                if (module == null)
+                // Use ExternalEvent to open panel (this is the correct way)
+                if (_openHvacPanelEvent != null)
                 {
-                    MessageBox.Show("Модуль HVAC не загружен. Попробуйте войти заново.",
-                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
+                    _openHvacPanelEvent.Raise();
+                    Core.DebugLogger.Log("[HUB] OpenHvacPanel event raised");
                 }
-                
-                Core.DebugLogger.Log($"[HUB] Module found: {module.ModuleName} v{module.ModuleVersion}");
-                
-                // Create panel from module
-                var panel = module.CreatePanel(new object[] {});
-                if (panel == null)
+                else
                 {
-                    MessageBox.Show("Не удалось создать панель модуля HVAC.",
+                    Core.DebugLogger.Log("[HUB] ERROR: OpenHvacPanel ExternalEvent not initialized");
+                    MessageBox.Show("Не удалось инициализировать событие открытия HVAC.",
                         "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
                 }
-                
-                Core.DebugLogger.Log("[HUB] Panel created successfully");
-                
-                // Extract content from Window (modules return Window, but we need UIElement)
-                var panelContent = panel.Content;
-                if (panelContent == null)
-                {
-                    MessageBox.Show("Панель модуля не содержит контента.",
-                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                
-                Core.DebugLogger.Log($"[HUB] Panel content type: {panelContent.GetType().Name}");
-                Core.DebugLogger.LogSeparator('-');
-                Core.DebugLogger.Log("");
-                
-                // Switch to HVAC panel
-                txtTitle.Text = "HVAC";
-                MainContent.Content = panelContent;
-                btnBack.Visibility = Visibility.Visible;
-                
-                // Hide Right Sidebar when HVAC panel is open
-                RightSidebar.Visibility = Visibility.Collapsed;
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Ошибка при загрузке панели HVAC:\n{ex.Message}\n\n{ex.StackTrace}", 
                     "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+        
+        /// <summary>
+        /// Show HVAC panel content (called from OpenHvacPanelCommand)
+        /// </summary>
+        public void ShowHvacPanel(object panelContent)
+        {
+            txtTitle.Text = "HVAC";
+            MainContent.Content = panelContent;
+            btnBack.Visibility = Visibility.Visible;
+            
+            // Hide Right Sidebar when HVAC panel is open
+            RightSidebar.Visibility = Visibility.Collapsed;
         }
 
         private void BtnBack_Click(object sender, RoutedEventArgs e)

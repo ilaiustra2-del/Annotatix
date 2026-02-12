@@ -1287,7 +1287,9 @@ namespace dwg2rvt.Module.UI
                             {
                                 _activePanel.UpdateStatus($"Неверный формат имени семейства: {selectedFamily}");
                                 totalFailed += blockType.Instances.Count;
-                                trans.RollBack();
+                                trans.Commit();
+                                MessageBox.Show($"Неверный формат имени семейства: {selectedFamily}\n\nОжидается формат: 'ИмяСемейства: ИмяТипа'", 
+                                    "Предупреждение", MessageBoxButton.OK, MessageBoxImage.Warning);
                                 return;
                             }
                             
@@ -1300,10 +1302,13 @@ namespace dwg2rvt.Module.UI
                             if (familySymbol == null)
                             {
                                 _activePanel.UpdateStatus($"Семейство не найдено: {selectedFamily}");
-                                MessageBox.Show($"Семейство не найдено: {selectedFamily}", 
-                                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                                _activePanel.UpdateStatus($"Пропущено {blockType.Instances.Count} экземпляров типа '{BlockTypeName}'");
                                 totalFailed += blockType.Instances.Count;
-                                trans.RollBack();
+                                trans.Commit();
+                                
+                                // Show warning but allow process to complete
+                                MessageBox.Show($"Семейство не найдено: {selectedFamily}\n\nПропущено {blockType.Instances.Count} экземпляров.\n\nПроверьте, что семейство загружено в проект.", 
+                                    "Предупреждение", MessageBoxButton.OK, MessageBoxImage.Warning);
                                 return;
                             }
                             
