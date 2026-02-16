@@ -26,6 +26,7 @@ namespace dwg2rvt.Module.UI
             public List<BlockInstanceData> Instances { get; set; } = new List<BlockInstanceData>();
             public string SelectedFamily { get; set; }
             public System.Windows.Controls.ComboBox FamilyComboBox { get; set; }
+            public System.Windows.Controls.CheckBox CheckBox { get; set; }
         }
 
         public class BlockInstanceData
@@ -186,8 +187,8 @@ namespace dwg2rvt.Module.UI
                 // Get selected import instance
                 ImportInstance selectedImport = _importedFiles[cmbImportedFiles.SelectedIndex];
 
-                // Get logging preference from checkbox
-                bool enableLogging = chkEnableLogging?.IsChecked ?? false;
+                // Get logging preference (disabled by default since checkbox was removed from UI)
+                bool enableLogging = false;
 
                 // Perform analysis using new AnalyzeByBlockName class
                 dwg2rvt.Module.Core.AnalyzeByBlockName analyzer = new dwg2rvt.Module.Core.AnalyzeByBlockName(doc);
@@ -422,144 +423,93 @@ namespace dwg2rvt.Module.UI
                 // Get available families from document
                 List<string> availableFamilies = GetAvailableFamilySymbols();
                 
-                // Add table header
-                var headerGrid = new System.Windows.Controls.Grid
-                {
-                    Margin = new Thickness(0, 10, 0, 5),
-                    Background = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(248, 249, 250))
-                };
-                headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-                headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-                headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
-                
-                var headerCol1 = new TextBlock
-                {
-                    Text = "Наименование блока",
-                    FontSize = 11,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(73, 80, 87)),
-                    Padding = new Thickness(8, 6, 8, 6),
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                System.Windows.Controls.Grid.SetColumn(headerCol1, 0);
-                headerGrid.Children.Add(headerCol1);
-                
-                var headerCol2 = new TextBlock
-                {
-                    Text = "Кол-во на виде",
-                    FontSize = 11,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(73, 80, 87)),
-                    Padding = new Thickness(8, 6, 8, 6),
-                    TextAlignment = TextAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                System.Windows.Controls.Grid.SetColumn(headerCol2, 1);
-                headerGrid.Children.Add(headerCol2);
-                
-                var headerCol3 = new TextBlock
-                {
-                    Text = "Семейство для замены",
-                    FontSize = 11,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(73, 80, 87)),
-                    Padding = new Thickness(8, 6, 8, 6),
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                System.Windows.Controls.Grid.SetColumn(headerCol3, 2);
-                headerGrid.Children.Add(headerCol3);
-                
-                var headerCol4 = new TextBlock
-                {
-                    Text = "Действия",
-                    FontSize = 11,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(73, 80, 87)),
-                    Padding = new Thickness(8, 6, 8, 6),
-                    TextAlignment = TextAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                System.Windows.Controls.Grid.SetColumn(headerCol4, 3);
-                headerGrid.Children.Add(headerCol4);
-                
-                statusStackPanel.Children.Add(headerGrid);
-                
-                // Add header separator
-                var headerSeparator = new Separator
-                {
-                    Margin = new Thickness(0, 0, 0, 0),
-                    Height = 2,
-                    Background = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(222, 226, 230))
-                };
-                statusStackPanel.Children.Add(headerSeparator);
-                
+                // Create rows with new table design (matching XAML)
                 foreach (var blockType in _blockTypesData.Values)
                 {
-                    // Create table row using Grid
+                    // Create table row using Grid with proper column definitions
                     var rowGrid = new System.Windows.Controls.Grid
                     {
-                        Margin = new Thickness(0, 5, 0, 5)
+                        Background = System.Windows.Media.Brushes.White
                     };
-                    rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+                    rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+                    rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+                    rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
                     rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                    rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-                    rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.2, GridUnitType.Star) });
+                    rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
                     
-                    // Column 1: Block name
+                    // Column 0: Checkbox in Border
+                    var checkboxBorder = new Border
+                    {
+                        BorderBrush = new System.Windows.Media.SolidColorBrush(
+                            System.Windows.Media.Color.FromRgb(224, 224, 224)),
+                        BorderThickness = new Thickness(0, 0, 1, 1)
+                    };
+                    var checkbox = new System.Windows.Controls.CheckBox
+                    {
+                        IsChecked = true,
+                        HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                        VerticalAlignment = System.Windows.VerticalAlignment.Center
+                    };
+                    checkboxBorder.Child = checkbox;
+                    blockType.CheckBox = checkbox;
+                    System.Windows.Controls.Grid.SetColumn(checkboxBorder, 0);
+                    rowGrid.Children.Add(checkboxBorder);
+                    
+                    // Column 1: Block name in Border
+                    var nameBorder = new Border
+                    {
+                        BorderBrush = new System.Windows.Media.SolidColorBrush(
+                            System.Windows.Media.Color.FromRgb(224, 224, 224)),
+                        BorderThickness = new Thickness(0, 0, 1, 1),
+                        Padding = new Thickness(6, 4, 6, 4)
+                    };
                     var blockNameText = new TextBlock
                     {
                         Text = blockType.BlockTypeName,
                         FontSize = 11,
-                        Foreground = new System.Windows.Media.SolidColorBrush(
-                            System.Windows.Media.Color.FromRgb(33, 37, 41)),
-                        Padding = new Thickness(8, 4, 8, 4),
-                        TextWrapping = TextWrapping.Wrap,
-                        VerticalAlignment = VerticalAlignment.Center
+                        VerticalAlignment = System.Windows.VerticalAlignment.Center
                     };
-                    System.Windows.Controls.Grid.SetColumn(blockNameText, 0);
-                    rowGrid.Children.Add(blockNameText);
+                    nameBorder.Child = blockNameText;
+                    System.Windows.Controls.Grid.SetColumn(nameBorder, 1);
+                    rowGrid.Children.Add(nameBorder);
                     
-                    // Column 2: Count
+                    // Column 2: Count in Border
+                    var countBorder = new Border
+                    {
+                        BorderBrush = new System.Windows.Media.SolidColorBrush(
+                            System.Windows.Media.Color.FromRgb(224, 224, 224)),
+                        BorderThickness = new Thickness(0, 0, 1, 1),
+                        Padding = new Thickness(6, 4, 6, 4)
+                    };
                     var countText = new TextBlock
                     {
                         Text = blockType.Count.ToString(),
                         FontSize = 11,
-                        Foreground = new System.Windows.Media.SolidColorBrush(
-                            System.Windows.Media.Color.FromRgb(33, 37, 41)),
-                        Padding = new Thickness(8, 4, 8, 4),
                         TextAlignment = TextAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center
+                        VerticalAlignment = System.Windows.VerticalAlignment.Center
                     };
-                    System.Windows.Controls.Grid.SetColumn(countText, 1);
-                    rowGrid.Children.Add(countText);
+                    countBorder.Child = countText;
+                    System.Windows.Controls.Grid.SetColumn(countBorder, 2);
+                    rowGrid.Children.Add(countBorder);
                     
-                    // Column 3: Family ComboBox container
-                    var comboBoxContainer = new StackPanel
+                    // Column 3: Family ComboBox in Border
+                    var comboBorder = new Border
                     {
-                        Margin = new Thickness(4, 0, 4, 0),
-                        VerticalAlignment = VerticalAlignment.Center
+                        BorderBrush = new System.Windows.Media.SolidColorBrush(
+                            System.Windows.Media.Color.FromRgb(224, 224, 224)),
+                        BorderThickness = new Thickness(0, 0, 1, 1),
+                        Padding = new Thickness(2, 2, 2, 2)
                     };
-                    System.Windows.Controls.Grid.SetColumn(comboBoxContainer, 2);
-                    rowGrid.Children.Add(comboBoxContainer);
                     
                     var familyComboBox = new System.Windows.Controls.ComboBox
                     {
-                        Height = 28,
-                        Margin = new Thickness(0),
-                        FontSize = 10,
-                        Background = System.Windows.Media.Brushes.White,
+                        Height = 22,
+                        FontSize = 11,
                         BorderBrush = new System.Windows.Media.SolidColorBrush(
-                            System.Windows.Media.Color.FromRgb(206, 212, 218)),
-                        IsEditable = true,  // Enable text search
-                        IsTextSearchEnabled = false,  // Disable default search
-                        MaxDropDownHeight = 300  // Allow scrolling in dropdown
+                            System.Windows.Media.Color.FromRgb(173, 173, 173)),
+                        IsEditable = true,
+                        IsTextSearchEnabled = false,
+                        MaxDropDownHeight = 300
                     };
                     
                     // Store all families for substring filtering
@@ -571,7 +521,7 @@ namespace dwg2rvt.Module.UI
                         familyComboBox.Items.Add(family);
                     }
                     
-                    // Create timer for delayed filtering to avoid UI freeze
+                    // Create timer for delayed filtering
                     System.Windows.Threading.DispatcherTimer filterTimer = null;
                     
                     // Add custom text changed handler for substring filtering
@@ -610,7 +560,6 @@ namespace dwg2rvt.Module.UI
                                 }
                                 
                                 object selectedBeforeFilter = comboBox.SelectedItem;
-                                bool wasDropDownOpen = comboBox.IsDropDownOpen;
                                 
                                 comboBox.Items.Clear();
                                 
@@ -666,51 +615,45 @@ namespace dwg2rvt.Module.UI
                     // Store reference to combobox
                     blockType.FamilyComboBox = familyComboBox;
                     
-                    comboBoxContainer.Children.Add(familyComboBox);
+                    comboBorder.Child = familyComboBox;
+                    System.Windows.Controls.Grid.SetColumn(comboBorder, 3);
+                    rowGrid.Children.Add(comboBorder);
                     
-                    // Column 4: Place Elements button
-                    var placeButton = new Button
+                    // Column 4: Action link in Border
+                    var actionBorder = new Border
                     {
-                        Content = "Расставить",
-                        Height = 28,
-                        Margin = new Thickness(4, 0, 0, 0),
-                        FontSize = 10,
-                        FontWeight = FontWeights.SemiBold,
-                        Background = new System.Windows.Media.SolidColorBrush(
-                            System.Windows.Media.Color.FromRgb(255, 193, 7)),
-                        Foreground = System.Windows.Media.Brushes.Black,
-                        BorderThickness = new Thickness(0),
+                        BorderBrush = new System.Windows.Media.SolidColorBrush(
+                            System.Windows.Media.Color.FromRgb(224, 224, 224)),
+                        BorderThickness = new Thickness(0, 0, 0, 1),
+                        Padding = new Thickness(6, 4, 6, 4)
+                    };
+                    var actionLink = new TextBlock
+                    {
+                        Text = "Расставить",
+                        FontSize = 11,
+                        Foreground = new System.Windows.Media.SolidColorBrush(
+                            System.Windows.Media.Color.FromRgb(0, 120, 212)),
                         Cursor = System.Windows.Input.Cursors.Hand,
-                        Tag = blockType.BlockTypeName,
-                        VerticalAlignment = VerticalAlignment.Center
+                        VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                        Tag = blockType.BlockTypeName
                     };
                     
-                    placeButton.Click += (s, args) =>
+                    actionLink.MouseLeftButtonUp += (s, args) =>
                     {
-                        System.Diagnostics.Debug.WriteLine($"[Button.Click] Clicked for block type: {blockType.BlockTypeName}");
                         PlaceSingleBlockType(blockType.BlockTypeName);
                     };
                     
-                    System.Windows.Controls.Grid.SetColumn(placeButton, 3);
-                    rowGrid.Children.Add(placeButton);
+                    actionBorder.Child = actionLink;
+                    System.Windows.Controls.Grid.SetColumn(actionBorder, 4);
+                    rowGrid.Children.Add(actionBorder);
                     
                     statusStackPanel.Children.Add(rowGrid);
-                    
-                    // Add row separator
-                    var rowSeparator = new Separator
-                    {
-                        Margin = new Thickness(0, 0, 0, 0),
-                        Height = 1,
-                        Background = new System.Windows.Media.SolidColorBrush(
-                            System.Windows.Media.Color.FromRgb(238, 238, 238))
-                    };
-                    statusStackPanel.Children.Add(rowSeparator);
                 }
                 
                 // Enable Place Elements button if we have data
                 if (_blockTypesData.Count > 0)
                 {
-                    btnPlaceElements.IsEnabled = true;
+                    btnPlaceAll.IsEnabled = true;
                 }
             }
             catch (Exception ex)
@@ -900,6 +843,95 @@ namespace dwg2rvt.Module.UI
                     "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+        
+        // === NEW UI EVENT HANDLERS ===
+        
+        // Callback to go back to hub
+        public Action OnBackToHub { get; set; }
+        
+        private void BtnBack_Click(object sender, RoutedEventArgs e)
+        {
+            OnBackToHub?.Invoke();
+        }
+        
+        // Stub button - select all checkboxes
+        private void BtnSelectAll_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var blockType in _blockTypesData.Values)
+            {
+                if (blockType.CheckBox != null)
+                {
+                    blockType.CheckBox.IsChecked = true;
+                }
+            }
+            txtProgress.Text = "Выбраны все элементы";
+        }
+        
+        // Stub button - deselect all checkboxes
+        private void BtnSelectNone_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var blockType in _blockTypesData.Values)
+            {
+                if (blockType.CheckBox != null)
+                {
+                    blockType.CheckBox.IsChecked = false;
+                }
+            }
+            txtProgress.Text = "Выделение снято";
+        }
+        
+        // Stub button - place selected elements
+        private void BtnPlaceSelected_Click(object sender, RoutedEventArgs e)
+        {
+            // Get list of selected block types
+            var selectedBlockTypes = _blockTypesData.Values
+                .Where(bt => bt.CheckBox?.IsChecked == true)
+                .Select(bt => bt.BlockTypeName)
+                .ToList();
+            
+            if (selectedBlockTypes.Count == 0)
+            {
+                MessageBox.Show("Не выбрано ни одного элемента", "Предупреждение", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            
+            // Place selected block types
+            try
+            {
+                foreach (var blockTypeName in selectedBlockTypes)
+                {
+                    PlaceSingleBlockType(blockTypeName);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при размещении:\n{ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnHelp_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("DWG2RVT - Конвертация элементов из DWG\n\n" +
+                "1. Выберите импортированный DWG файл\n" +
+                "2. Нажмите 'Анализировать'\n" +
+                "3. Настройте соответствия семейств\n" +
+                "4. Нажмите 'Расставить все элементы'\n\n" +
+                "По вопросам: support@annotatix.ai",
+                "Помощь", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        
+        private void BtnReference_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start("https://annotatix.ai/docs/dwg2rvt");
+            }
+            catch
+            {
+                MessageBox.Show("Откройте ссылку: https://annotatix.ai/docs/dwg2rvt", 
+                    "Справка", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
 
         public class AnnotateEventHandler : IExternalEventHandler
         {
@@ -1017,7 +1049,7 @@ namespace dwg2rvt.Module.UI
                     
                     _activePanel.Dispatcher.Invoke(() =>
                     {
-                        _activePanel.btnPlaceElements.IsEnabled = false;
+                        _activePanel.btnPlaceAll.IsEnabled = false;
                         _activePanel.txtProgress.Text = "Размещение элементов...";
                     });
                     
@@ -1172,7 +1204,7 @@ namespace dwg2rvt.Module.UI
                 {
                     _activePanel.Dispatcher.Invoke(() =>
                     {
-                        _activePanel.btnPlaceElements.IsEnabled = true;
+                        _activePanel.btnPlaceAll.IsEnabled = true;
                     });
                 }
             }

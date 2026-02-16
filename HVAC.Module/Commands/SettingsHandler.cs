@@ -14,6 +14,11 @@ namespace HVAC.Module.Commands
     {
         private UIApplication _uiApp;
 
+        public SettingsHandler()
+        {
+            // UIApplication will be provided in Execute()
+        }
+        
         public SettingsHandler(UIApplication uiApp)
         {
             _uiApp = uiApp;

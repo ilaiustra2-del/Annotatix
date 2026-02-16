@@ -1,378 +1,150 @@
 <UserControl x:Class="dwg2rvt.Module.UI.dwg2rvtPanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="White">
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="20,15,20,20">
-
-        <!-- Active View Name -->
-        <Border Background="#F8F9FA" 
-                CornerRadius="6" 
-                Padding="10"
-                Margin="0,0,0,10">
-            <StackPanel>
-                <TextBlock Text="Активный вид" 
-                           FontWeight="SemiBold" 
-                           FontSize="12"
-                           Foreground="#6C757D"
-                           Margin="0,0,0,8"/>
-                <TextBox x:Name="txtActiveView" 
-                         IsReadOnly="True" 
-                         Background="White"
-                         BorderBrush="#DEE2E6"
-                         BorderThickness="1"
-                         Padding="10"
-                         FontSize="13">
-                    <TextBox.Style>
-                        <Style TargetType="TextBox">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="TextBox">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                CornerRadius="4">
-                                            <ScrollViewer x:Name="PART_ContentHost" 
-                                                          Margin="{TemplateBinding Padding}"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </TextBox.Style>
-                </TextBox>
-            </StackPanel>
-        </Border>
-
-        <!-- Import File Selection -->
-        <Border Background="#F8F9FA" 
-                CornerRadius="6" 
-                Padding="12"
-                Margin="0,0,0,8">
-            <StackPanel>
-                <TextBlock Text="Выберите импортированный DWG файл" 
-                           FontWeight="SemiBold" 
-                           FontSize="12"
-                           Foreground="#6C757D"
-                           Margin="0,0,0,8"/>
-                <ComboBox x:Name="cmbImportedFiles" 
-                          Padding="10"
-                          Height="36"
-                          Background="White"
-                          BorderBrush="#DEE2E6"
-                          FontSize="13">
-                    <ComboBox.Style>
-                        <Style TargetType="ComboBox">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ComboBox">
-                                        <Grid>
-                                            <ToggleButton x:Name="ToggleButton"
-                                                          Grid.Column="2"
-                                                          Focusable="false"
-                                                          IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
-                                                          ClickMode="Press">
-                                                <ToggleButton.Template>
-                                                    <ControlTemplate TargetType="ToggleButton">
-                                                        <Border Background="{TemplateBinding Background}"
-                                                                BorderBrush="#DEE2E6"
-                                                                BorderThickness="1"
-                                                                CornerRadius="4">
-                                                            <Grid>
-                                                                <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition/>
-                                                                    <ColumnDefinition Width="20"/>
-                                                                </Grid.ColumnDefinitions>
-                                                                <ContentPresenter Grid.Column="0"
-                                                                                  Content="{TemplateBinding Content}"
-                                                                                  Margin="10,0,0,0"
-                                                                                  VerticalAlignment="Center"/>
-                                                                <Path Grid.Column="1"
-                                                                      Data="M 0 0 L 4 4 L 8 0 Z"
-                                                                      Fill="#6C757D"
-                                                                      HorizontalAlignment="Center"
-                                                                      VerticalAlignment="Center"/>
-                                                            </Grid>
-                                                        </Border>
-                                                    </ControlTemplate>
-                                                </ToggleButton.Template>
-                                            </ToggleButton>
-                                            <ContentPresenter x:Name="ContentSite"
-                                                              IsHitTestVisible="False"
-                                                              Content="{TemplateBinding SelectionBoxItem}"
-                                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
-                                                              Margin="10,0,25,0"
-                                                              VerticalAlignment="Center"
-                                                              HorizontalAlignment="Left"/>
-                                            <Popup x:Name="Popup"
-                                                   Placement="Bottom"
-                                                   IsOpen="{TemplateBinding IsDropDownOpen}"
-                                                   AllowsTransparency="True"
-                                                   Focusable="False"
-                                                   PopupAnimation="Slide">
-                                                <Grid x:Name="DropDown"
-                                                      SnapsToDevicePixels="True"
-                                                      MinWidth="{TemplateBinding ActualWidth}"
-                                                      MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                                                    <Border x:Name="DropDownBorder"
-                                                            Background="White"
-                                                            BorderBrush="#DEE2E6"
-                                                            BorderThickness="1"
-                                                            CornerRadius="4"/>
-                                                    <ScrollViewer Margin="4,6,4,6" SnapsToDevicePixels="True">
-                                                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
-                                                    </ScrollViewer>
-                                                </Grid>
-                                            </Popup>
-                                        </Grid>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ComboBox.Style>
-                </ComboBox>
-            </StackPanel>
-        </Border>
-
-        <!-- Progress Text -->
-        <StackPanel Margin="0,0,0,10">
-            <TextBlock x:Name="txtProgress" 
-                       Text="" 
-                       Foreground="#0D6EFD"
-                       FontSize="12"
-                       TextWrapping="Wrap"
-                       MinHeight="18"/>
+             Background="White"
+             FontFamily="Segoe UI">
+    
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="SharedStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Active View Label -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock Text="Активный вид: " 
+                       FontSize="13" 
+                       Foreground="#333333"/>
+            <TextBlock x:Name="txtActiveView" 
+                       Text="Этаж 01"
+                       FontSize="13" 
+                       Foreground="#333333"/>
         </StackPanel>
-
-        <!-- Status/Log Area - Enhanced with dynamic content -->
-        <Border Background="#F8F9FA" 
-                BorderBrush="#DEE2E6"
+        
+        <!-- DWG File Selection -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,12">
+            <TextBlock Text="DWG файл для анализа:" 
+                       FontSize="13" 
+                       Foreground="#333333"
+                       Margin="0,0,0,4"/>
+            <ComboBox x:Name="cmbImportedFiles"
+                      Height="28"
+                      FontSize="13"
+                      BorderBrush="#ADADAD"
+                      Background="White">
+                <ComboBoxItem Content="Эксперимент с плаником DWGdata" IsSelected="True"/>
+            </ComboBox>
+        </StackPanel>
+        
+        <!-- Table (visual representation via Grid) -->
+        <Border Grid.Row="2" 
+                BorderBrush="#D0D0D0" 
                 BorderThickness="1"
-                CornerRadius="6" 
-                Margin="0,0,0,15">
+                Background="White">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 
-                <Border Grid.Row="0" 
-                        Background="White" 
-                        BorderBrush="#DEE2E6"
-                        BorderThickness="0,0,0,1"
-                        CornerRadius="6,6,0,0"
-                        Padding="15,10">
-                    <TextBlock Text="Статус" 
-                               FontWeight="SemiBold" 
-                               FontSize="12"
-                               Foreground="#495057"/>
-                </Border>
+                <!-- Table Header -->
+                <Grid Grid.Row="0" Background="#F0F0F0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="40"/>
+                        <ColumnDefinition Width="200"/>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="120"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <Border Grid.Column="0" BorderBrush="#D0D0D0" BorderThickness="0,0,1,1" Padding="6,6">
+                        <!-- checkbox header placeholder -->
+                    </Border>
+                    <Border Grid.Column="1" BorderBrush="#D0D0D0" BorderThickness="0,0,1,1" Padding="6,6">
+                        <TextBlock Text="Наименование блока" FontSize="11" FontWeight="SemiBold"/>
+                    </Border>
+                    <Border Grid.Column="2" BorderBrush="#D0D0D0" BorderThickness="0,0,1,1" Padding="6,6">
+                        <TextBlock Text="Кол-во" FontSize="11" FontWeight="SemiBold" TextAlignment="Center"/>
+                    </Border>
+                    <Border Grid.Column="3" BorderBrush="#D0D0D0" BorderThickness="0,0,1,1" Padding="6,6">
+                        <TextBlock Text="Семейство для расстановки" FontSize="11" FontWeight="SemiBold"/>
+                    </Border>
+                    <Border Grid.Column="4" BorderBrush="#D0D0D0" BorderThickness="0,0,0,1" Padding="6,6">
+                        <TextBlock Text="Действие" FontSize="11" FontWeight="SemiBold"/>
+                    </Border>
+                </Grid>
                 
-                <StackPanel Grid.Row="1" 
-                            x:Name="statusStackPanel"
-                            Margin="15">
-                    <!-- Dynamic content will be added here programmatically -->
-                    <TextBlock x:Name="txtStatus" 
-                               TextWrapping="Wrap" 
-                               FontFamily="Consolas"
-                               FontSize="11"
-                               Foreground="#495057"/>
-                </StackPanel>
+                <!-- Table Body (dynamic content) -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="statusStackPanel">
+                        <!-- Status text area (hidden by default, shown programmatically) -->
+                        <TextBlock x:Name="txtStatus" 
+                                   TextWrapping="Wrap" 
+                                   FontFamily="Consolas"
+                                   FontSize="11"
+                                   Foreground="#495057"
+                                   Margin="8"
+                                   Visibility="Collapsed"/>
+                    </StackPanel>
+                </ScrollViewer>
             </Grid>
         </Border>
-
-        <!-- Logging Settings -->
-        <Border Background="#F8F9FA" 
-                BorderBrush="#DEE2E6"
-                BorderThickness="1"
-                CornerRadius="6" 
-                Padding="12"
-                Margin="0,0,0,15">
-            <StackPanel Orientation="Horizontal">
-                <CheckBox x:Name="chkEnableLogging"
-                          IsChecked="False"
-                          VerticalAlignment="Center"
-                          Margin="0,0,10,0">
-                    <CheckBox.Style>
-                        <Style TargetType="CheckBox">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="CheckBox">
-                                        <StackPanel Orientation="Horizontal">
-                                            <Border x:Name="Border"
-                                                    Width="20"
-                                                    Height="20"
-                                                    Background="White"
-                                                    BorderBrush="#DEE2E6"
-                                                    BorderThickness="2"
-                                                    CornerRadius="4"
-                                                    Margin="0,0,8,0">
-                                                <Path x:Name="CheckMark"
-                                                      Data="M 2 6 L 6 10 L 14 2"
-                                                      Stroke="White"
-                                                      StrokeThickness="2"
-                                                      Visibility="Collapsed"/>
-                                            </Border>
-                                            <ContentPresenter VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsChecked" Value="True">
-                                                <Setter TargetName="Border" Property="Background" Value="#0D6EFD"/>
-                                                <Setter TargetName="Border" Property="BorderBrush" Value="#0D6EFD"/>
-                                                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
-                                            </Trigger>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Border" Property="BorderBrush" Value="#0D6EFD"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </CheckBox.Style>
-                </CheckBox>
-                <StackPanel>
-                    <TextBlock Text="Включить логирование" 
-                               FontSize="12"
-                               FontWeight="SemiBold"
-                               Foreground="#495057"/>
-                    <TextBlock Text="Создавать лог-файлы при анализе (для отладки)" 
-                               FontSize="10"
-                               Foreground="#6C757D"
-                               Margin="0,2,0,0"/>
-                </StackPanel>
-            </StackPanel>
-        </Border>
-
-        <!-- Action Buttons -->
-        <Grid Margin="0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="10"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="10"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            
-            <!-- Analyze Button -->
-            <Button Grid.Column="0"
-                    x:Name="btnAnalyze"
-                    Content="Анализировать" 
-                    Height="42"
-                    FontSize="13"
-                    FontWeight="SemiBold"
+        
+        <!-- Action Buttons Row -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
+            <Button x:Name="btnAnalyze"
+                    Content="Анализировать"
+                    Style="{StaticResource SecondaryButton}"
                     Click="BtnAnalyzeByName_Click"
-                    Background="#0D6EFD"
-                    Foreground="White"
-                    BorderThickness="0"
-                    Cursor="Hand">
-                <Button.Style>
-                    <Style TargetType="Button">
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}"
-                                            CornerRadius="6"
-                                            Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                        <Setter Property="Background" Value="#0D6EFD"/>
-                        <Style.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#0B5ED7"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Background" Value="#E9ECEF"/>
-                                <Setter Property="Foreground" Value="#ADB5BD"/>
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </Button.Style>
-            </Button>
-            
-            <!-- Place Elements Button -->
-            <Button Grid.Column="2"
-                    x:Name="btnPlaceElements"
-                    Content="Расставить все элементы" 
-                    Height="42"
-                    FontSize="13"
-                    FontWeight="SemiBold"
+                    Margin="0,0,8,0"/>
+            <Button x:Name="btnSelectAll"
+                    Content="Все"
+                    Style="{StaticResource SecondaryButton}"
+                    Click="BtnSelectAll_Click"
+                    Margin="0,0,8,0"/>
+            <Button x:Name="btnSelectNone"
+                    Content="Ни одного"
+                    Style="{StaticResource SecondaryButton}"
+                    Click="BtnSelectNone_Click"
+                    Margin="0,0,8,0"/>
+            <Button x:Name="btnPlaceSelected"
+                    Content="Разместить выделенное"
+                    Style="{StaticResource SecondaryButton}"
+                    Click="BtnPlaceSelected_Click"
+                    Margin="0,0,8,0"/>
+            <Button x:Name="btnPlaceAll"
+                    Content="Расставить все"
+                    Style="{StaticResource PrimaryButton}"
                     Click="BtnPlaceElements_Click"
-                    Background="#FFC107"
-                    Foreground="#000000"
-                    BorderThickness="0"
-                    Cursor="Hand"
-                    IsEnabled="False">
-                <Button.Style>
-                    <Style TargetType="Button">
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}"
-                                            CornerRadius="6"
-                                            Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                        <Setter Property="Background" Value="#FFC107"/>
-                        <Style.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#FFB300"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Background" Value="#E9ECEF"/>
-                                <Setter Property="Foreground" Value="#ADB5BD"/>
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </Button.Style>
-            </Button>
-            
-            <!-- Annotate Button -->
-            <Button Grid.Column="4"
-                    x:Name="btnAnnotate"
-                    Content="Аннотировать" 
-                    Height="42"
-                    FontSize="13"
-                    FontWeight="SemiBold"
-                    Click="BtnAnnotate_Click"
-                    Background="#198754"
-                    Foreground="White"
-                    BorderThickness="0"
-                    Cursor="Hand">
-                <Button.Style>
-                    <Style TargetType="Button">
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}"
-                                            CornerRadius="6"
-                                            Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                        <Setter Property="Background" Value="#198754"/>
-                        <Style.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#157347"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Background" Value="#E9ECEF"/>
-                                <Setter Property="Foreground" Value="#ADB5BD"/>
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </Button.Style>
-            </Button>
-        </Grid>
-    </StackPanel>
-    </ScrollViewer>
+                    IsEnabled="False"/>
+        </StackPanel>
+        
+        <!-- Status GroupBox -->
+        <GroupBox Grid.Row="4"
+                  Header="Статус"
+                  MinHeight="50"
+                  BorderBrush="#D0D0D0"
+                  FontSize="12"
+                  Margin="0,12,0,0">
+            <TextBlock x:Name="txtProgress"
+                       Padding="8"
+                       FontSize="12"
+                       Foreground="#333333"
+                       TextWrapping="Wrap"/>
+        </GroupBox>
+        
+        <!-- Footer Buttons - REMOVED (not needed) -->
+    </Grid>
 </UserControl>

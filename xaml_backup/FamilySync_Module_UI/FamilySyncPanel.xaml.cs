@@ -250,19 +250,6 @@ namespace FamilySync.Module.UI
         }
         
         /// <summary>
-        /// Handle text change in sync value textbox to show/hide placeholder
-        /// </summary>
-        private void TxtSyncValue_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            if (txtSyncValuePlaceholder != null)
-            {
-                txtSyncValuePlaceholder.Visibility = string.IsNullOrEmpty(txtSyncValue.Text) 
-                    ? System.Windows.Visibility.Visible 
-                    : System.Windows.Visibility.Collapsed;
-            }
-        }
-        
-        /// <summary>
         /// Update txtSyncValue enabled state based on chkCopyFromParent
         /// </summary>
         private void UpdateSyncValueState()
@@ -1296,40 +1283,6 @@ namespace FamilySync.Module.UI
             }
 
             return nestedInstances;
-        }
-        
-        // === NEW UI EVENT HANDLERS ===
-        
-        // Callback to go back to hub
-        public Action OnBackToHub { get; set; }
-        
-        private void BtnBack_Click(object sender, RoutedEventArgs e)
-        {
-            OnBackToHub?.Invoke();
-        }
-        
-        private void BtnHelp_Click(object sender, RoutedEventArgs e)
-        {
-            MessageBox.Show("Family Sync - Синхронизация параметров вложенных семейств\n\n" +
-                "1. Выберите элементы в модели\n" +
-                "2. Нажмите 'Анализировать'\n" +
-                "3. Выберите параметр и значение\n" +
-                "4. Нажмите 'Синхронизировать'\n\n" +
-                "По вопросам: support@annotatix.ai",
-                "Помощь", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        
-        private void BtnReference_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                System.Diagnostics.Process.Start("https://annotatix.ai/docs/familysync");
-            }
-            catch
-            {
-                MessageBox.Show("Откройте ссылку: https://annotatix.ai/docs/familysync", 
-                    "Справка", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
         }
 
     }

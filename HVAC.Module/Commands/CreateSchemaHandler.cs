@@ -24,6 +24,11 @@ namespace HVAC.Module.Commands
         private ElementId _annotationSymbolSymbolId;
         public ElementId _textNoteTypeId;
 
+        public CreateSchemaHandler()
+        {
+            // UIApplication will be provided in Execute()
+        }
+        
         public CreateSchemaHandler(UIApplication uiApp)
         {
             _uiApp = uiApp;
@@ -43,9 +48,6 @@ namespace HVAC.Module.Commands
                 }
                 
                 _doc = uidoc.Document;
-                
-                // Initialize Updater if not already initialized
-                EnsureUpdaterInitialized(app);
                 
                 using (TransactionGroup trg = new TransactionGroup(_doc, "Создание схемы"))
                 {
@@ -101,10 +103,18 @@ namespace HVAC.Module.Commands
                     }
                     finally
                     {
-                        // Only enable if Updater is initialized
+                        // Only enable Updater if checkbox is enabled AND Updater is initialized
                         if (Updater._m_updaterId != null)
                         {
-                            UpdaterRegistry.EnableUpdater(Updater._m_updaterId);
+                            if (UI.HVACSyncState.IsSyncEnabled)
+                            {
+                                UpdaterRegistry.EnableUpdater(Updater._m_updaterId);
+                                DebugLogger.Log("[HVAC-CMD] Updater enabled (sync checkbox ON)");
+                            }
+                            else
+                            {
+                                DebugLogger.Log("[HVAC-CMD] Updater NOT enabled (sync checkbox OFF)");
+                            }
                         }
                     }
                 }
@@ -122,7 +132,61 @@ namespace HVAC.Module.Commands
             using var t = new Transaction(_doc);
 
             t.Start("Удаление неактуальных чертежных видов");
-            _doc.Delete(views.Select(v => v.Id).ToList());
+            
+            // Close views if they are open, then delete
+            var uiDoc = new UIDocument(_doc);
+            var successfullyDeleted = 0;
+            var failedToDelete = 0;
+            
+            foreach (var view in views)
+            {
+                try
+                {
+                    // Save view name BEFORE any operations (view becomes invalid after close)
+                    string viewName = "";
+                    try
+                    {
+                        viewName = view.Name;
+                    }
+                    catch
+                    {
+                        viewName = "<unknown>";
+                    }
+                    
+                    // Try to close the view if it's currently open
+                    try
+                    {
+                        var openViews = uiDoc.GetOpenUIViews();
+                        foreach (var openView in openViews)
+                        {
+                            if (openView.ViewId == view.Id)
+                            {
+                                openView.Close();
+                                DebugLogger.Log($"[HVAC-CMD] Closed open view: {viewName}");
+                                break;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore errors closing view
+                    }
+                    
+                    // Now try to delete
+                    _doc.Delete(view.Id);
+                    successfullyDeleted++;
+                    DebugLogger.Log($"[HVAC-CMD] Deleted view: {viewName}");
+                }
+                catch (Exception ex)
+                {
+                    // Log but continue - some views might be in use
+                    DebugLogger.Log($"[HVAC-CMD] WARNING: Could not delete view: {ex.Message}");
+                    failedToDelete++;
+                }
+            }
+            
+            DebugLogger.Log($"[HVAC-CMD] Deleted {successfullyDeleted} views, failed to delete {failedToDelete} views");
+            
             t.Commit();
         }
         
@@ -144,38 +208,6 @@ namespace HVAC.Module.Commands
             t.Commit();
 
             return draftView;
-        }
-        
-        private void EnsureUpdaterInitialized(UIApplication uiApp)
-        {
-            if (HVACSuperScheme.App._updater == null)
-            {
-                DebugLogger.Log("[HVAC-CMD] Initializing Updater...");
-                
-                // Store UIApplication for Idling events
-                HVACSuperScheme.App._uiapp = uiApp;
-                
-                // Initialize element filters BEFORE creating Updater
-                FilterUtils.InitElementFilters();
-                DebugLogger.Log("[HVAC-CMD] Element filters initialized");
-                
-                // Get AddInId from the current application
-                var addInId = uiApp.ActiveAddInId;
-                
-                // Create Updater instance
-                HVACSuperScheme.App._updater = new Updater(addInId);
-                
-                // Register the updater
-                UpdaterRegistry.RegisterUpdater(HVACSuperScheme.App._updater);
-                
-                DebugLogger.Log("[HVAC-CMD] Updater initialized and registered successfully");
-            }
-            else if (HVACSuperScheme.App._uiapp == null)
-            {
-                // Updater exists but UIApp not stored yet
-                HVACSuperScheme.App._uiapp = uiApp;
-                DebugLogger.Log("[HVAC-CMD] UIApplication stored for Idling events");
-            }
         }
 
         public string GetName()

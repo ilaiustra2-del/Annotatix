@@ -122,10 +122,9 @@ namespace PluginsManager.Core
             {
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Starting authentication for: {login}");
                 
-                // Build Supabase REST API query
-                // Query kv_store table for key = "user_data:{user_id}" where login matches
-                // We need to search all user_data keys and parse their JSON values
-                string query = $"{SUPABASE_URL}/rest/v1/kv_store_19422568?key=like.user_data:*";
+                // Build Supabase REST API query to user_data table
+                // Query user_data table for login match
+                string query = $"{SUPABASE_URL}/rest/v1/user_data?login=eq.{Uri.EscapeDataString(login)}";
                 
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Request URL: {query}");
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Sending HTTP GET request...");
@@ -153,28 +152,8 @@ namespace PluginsManager.Core
                 var records = JArray.Parse(jsonResponse);
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Records found: {records.Count}");
                 
-                // Find user by login in the JSON values
-                JObject userData = null;
-                string userId = null;
-                
-                foreach (var record in records)
-                {
-                    string key = record["key"]?.ToString();
-                    var value = JObject.Parse(record["value"]?.ToString() ?? "{}");
-                    string userLogin = value["login"]?.ToString();
-                    
-                    if (userLogin != null && userLogin.Equals(login, StringComparison.OrdinalIgnoreCase))
-                    {
-                        userData = value;
-                        // Extract user_id from key: "user_data:30cf2909-73e9-4ae7-a3a0-f2e06d2a0a68"
-                        userId = key?.Replace("user_data:", "");
-                        System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] User found with key: {key}");
-                        break;
-                    }
-                }
-                
-                // Check if user exists by login
-                if (userData == null)
+                // Check if user exists
+                if (records.Count == 0)
                 {
                     System.Diagnostics.Debug.WriteLine("[AUTH-SERVICE] User not found - login doesn't exist");
                     return new AuthResult 
@@ -184,8 +163,12 @@ namespace PluginsManager.Core
                     };
                 }
                 
-                // Get user data
-                string storedPasswordHash = userData["password"]?.ToString();
+                // Get first user record
+                var userRecord = records[0];
+                string userId = userRecord["user_id"]?.ToString();
+                string storedPasswordHash = userRecord["password"]?.ToString();
+                
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] User found with ID: {userId}");
                 
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] User found, checking password...");
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Stored hash: {storedPasswordHash}");
@@ -302,7 +285,7 @@ namespace PluginsManager.Core
         }
         
         /// <summary>
-        /// Get user modules from kv_store table
+        /// Get user modules from user_modules table
         /// </summary>
         private async Task<List<UserModule>> GetUserModulesAsync(string userId)
         {
@@ -310,10 +293,8 @@ namespace PluginsManager.Core
             
             try
             {
-                // Query kv_store table for keys starting with "user_modules:{userId}"
-                // Example: user_modules:fc2c7a31-1677-40c5-a02b-c4cc5fbe0895:dwg2rvt
-                string keyPrefix = $"user_modules:{userId}";
-                string query = $"{SUPABASE_URL}/rest/v1/kv_store_19422568?key=like.{Uri.EscapeDataString(keyPrefix + "*")}";
+                // Query user_modules table for user_id match
+                string query = $"{SUPABASE_URL}/rest/v1/user_modules?user_id=eq.{Uri.EscapeDataString(userId)}";
                 
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Fetching modules with query: {query}");
                 
@@ -332,17 +313,36 @@ namespace PluginsManager.Core
                 
                 foreach (var record in moduleRecords)
                 {
-                    var value = JObject.Parse(record["value"]?.ToString() ?? "{}");
-                    
-                    string moduleTag = value["module_tag"]?.ToString();
-                    string startDateStr = value["start_date"]?.ToString();
-                    string endDateStr = value["end_date"]?.ToString();
+                    string moduleTag = record["module_tag"]?.ToString();
+                    string startDateStr = record["start_date"]?.ToString();
+                    string endDateStr = record["end_date"]?.ToString();
                     
                     if (string.IsNullOrEmpty(moduleTag))
                         continue;
                     
-                    DateTime startDate = DateTime.TryParse(startDateStr, out var sd) ? sd : DateTime.MinValue;
-                    DateTime endDate = DateTime.TryParse(endDateStr, out var ed) ? ed : DateTime.MaxValue;
+                    // Parse date in DD.MM.YYYY format (Russian culture)
+                    DateTime startDate = DateTime.MinValue;
+                    DateTime endDate = DateTime.MaxValue;
+                    
+                    if (!string.IsNullOrEmpty(startDateStr))
+                    {
+                        if (DateTime.TryParseExact(startDateStr, "dd.MM.yyyy", 
+                            System.Globalization.CultureInfo.InvariantCulture, 
+                            System.Globalization.DateTimeStyles.None, out var sd))
+                        {
+                            startDate = sd;
+                        }
+                    }
+                    
+                    if (!string.IsNullOrEmpty(endDateStr))
+                    {
+                        if (DateTime.TryParseExact(endDateStr, "dd.MM.yyyy", 
+                            System.Globalization.CultureInfo.InvariantCulture, 
+                            System.Globalization.DateTimeStyles.None, out var ed))
+                        {
+                            endDate = ed;
+                        }
+                    }
                     
                     modules.Add(new UserModule
                     {
@@ -454,8 +454,8 @@ namespace PluginsManager.Core
             {
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Validating refresh token for: {email}");
                 
-                // Get user data from server
-                string query = $"{SUPABASE_URL}/rest/v1/kv_store_19422568?key=like.user_data:*";
+                // Get user data from user_data table
+                string query = $"{SUPABASE_URL}/rest/v1/user_data?login=eq.{Uri.EscapeDataString(email)}";
                 var response = await _httpClient.GetAsync(query);
                 
                 if (!response.IsSuccessStatusCode)
@@ -466,28 +466,14 @@ namespace PluginsManager.Core
                 string jsonResponse = await response.Content.ReadAsStringAsync();
                 var records = JArray.Parse(jsonResponse);
                 
-                // Find user by email
-                JObject userData = null;
-                string userId = null;
-                
-                foreach (var record in records)
-                {
-                    string key = record["key"]?.ToString();
-                    var value = JObject.Parse(record["value"]?.ToString() ?? "{}");
-                    string userLogin = value["login"]?.ToString();
-                    
-                    if (userLogin != null && userLogin.Equals(email, StringComparison.OrdinalIgnoreCase))
-                    {
-                        userData = value;
-                        userId = key?.Replace("user_data:", "");
-                        break;
-                    }
-                }
-                
-                if (userData == null)
+                // Check if user exists
+                if (records.Count == 0)
                 {
                     return new AuthResult { IsSuccess = false, ErrorMessage = "Пользователь не найден" };
                 }
+                
+                // Get user ID
+                string userId = records[0]["user_id"]?.ToString();
                 
                 // Get modules
                 var modules = await GetUserModulesAsync(userId);

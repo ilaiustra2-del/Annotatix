@@ -1,395 +1,345 @@
 <Window x:Class="PluginsManager.UI.MainHubPanel"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Менеджер плагинов" 
-        Height="584" 
+        x:Name="MainWindow"
+        Title="Менеджер плагинов AnnotatiX.AI"
         Width="767"
+        Height="584"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResize"
-        Background="#F5F5F5">
+        Background="White"
+        FontFamily="Segoe UI"
+        BorderBrush="#7A7A7A"
+        BorderThickness="1">
+    
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="SharedStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            
+            <!-- Plugin Card Style -->
+            <Style x:Key="PluginCard" TargetType="Border">
+                <Setter Property="Background" Value="White"/>
+                <Setter Property="BorderBrush" Value="#D0D0D0"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="2"/>
+                <Setter Property="Padding" Value="16"/>
+                <Setter Property="Margin" Value="0,0,12,12"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Height" Value="130"/>
+                <Setter Property="Width" Value="120"/>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Background" Value="#E5F3FF"/>
+                        <Setter Property="BorderBrush" Value="#0078D4"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            
+            <Style x:Key="PluginCardDisabled" TargetType="Border" BasedOn="{StaticResource PluginCard}">
+                <Setter Property="Opacity" Value="0.5"/>
+                <Setter Property="Cursor" Value="Arrow"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+    
     <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="Auto"/>
-        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
         
-        <!-- Main Content Area -->
-        <Grid Grid.Column="0" Margin="20">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-
-            <!-- Dynamic Header -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,20">
-                <!-- Back Button (initially hidden) -->
-                <Button x:Name="btnBack" 
-                        Content="← Назад" 
-                        Visibility="Collapsed" 
-                        Click="BtnBack_Click"
-                        Padding="12,6"
-                        Margin="0,0,20,0"
-                        Background="White"
-                        BorderBrush="#CCCCCC"
-                        BorderThickness="1"
-                        Cursor="Hand">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                CornerRadius="4"
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#E8E8E8"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-                
-                <TextBlock x:Name="txtTitle" 
-                           Text="Менеджер плагинов" 
-                           FontSize="24" 
-                           FontWeight="Normal" 
-                           HorizontalAlignment="Left" 
-                           VerticalAlignment="Center"/>
-                
-                <!-- Version Number -->
-                <TextBlock x:Name="txtVersion" 
-                           Text="v 2.0" 
-                           FontSize="12" 
-                           FontWeight="Normal" 
-                           Foreground="#888888"
-                           Margin="10,0,0,0"
-                           VerticalAlignment="Center"/>
-            </StackPanel>
-
-            <!-- Plugin Grid -->
-            <ContentControl x:Name="MainContent" Grid.Row="1">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    
-                    <!-- First Row of Plugins -->
-                    <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
-                        <!-- dwg2rvt Button -->
-                        <StackPanel x:Name="pnlDwg2rvt" Margin="0,0,15,15" Cursor="Hand" MouseLeftButtonUp="Dwg2rvt_Click" IsEnabled="False" Opacity="0.4">
-                            <Border Width="110" Height="110" 
-                                    Background="#E0E0E0" 
-                                    CornerRadius="12"
-                                    Padding="15">
-                                <Image x:Name="imgDwg2rvtIcon"
-                                       Stretch="Uniform"
-                                       RenderOptions.BitmapScalingMode="HighQuality"/>
-                            </Border>
-                            <TextBlock Text="DWG2RVT" 
-                                       FontSize="11" 
-                                       FontWeight="Normal" 
-                                       HorizontalAlignment="Center" 
-                                       Margin="0,8,0,0"/>
-                        </StackPanel>
-
-                        <!-- HVAC Button -->
-                        <StackPanel x:Name="pnlHVAC" Margin="0,0,15,15" Cursor="Hand" MouseLeftButtonUp="HVAC_Click" IsEnabled="False" Opacity="0.4">
-                            <Border Width="110" Height="110" 
-                                    Background="#E0E0E0" 
-                                    CornerRadius="12"
-                                    Padding="15">
-                                <TextBlock Text="HVAC" 
-                                           FontSize="32"
-                                           FontWeight="Bold"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Foreground="#9E9E9E"/>
-                            </Border>
-                            <TextBlock Text="HVAC" 
-                                       FontSize="11" 
-                                       FontWeight="Normal" 
-                                       HorizontalAlignment="Center" 
-                                       Margin="0,8,0,0"/>
-                        </StackPanel>
-
-                        <!-- Family Sync Button -->
-                        <StackPanel x:Name="pnlFamilySync" Margin="0,0,15,15" Cursor="Hand" MouseLeftButtonUp="FamilySync_Click">
-                            <Border Width="110" Height="110" 
-                                    Background="#E0E0E0" 
-                                    CornerRadius="12"
-                                    Padding="15">
-                                <TextBlock Text="FS" 
-                                           FontSize="32"
-                                           FontWeight="Bold"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Foreground="#5C6BC0"/>
-                            </Border>
-                            <TextBlock Text="Family Sync" 
-                                       FontSize="11" 
-                                       FontWeight="Normal" 
-                                       HorizontalAlignment="Center" 
-                                       Margin="0,8,0,0"/>
-                        </StackPanel>
-
-                        <!-- Placeholder 3 -->
-                        <StackPanel Margin="0,0,15,15">
-                            <Border Width="110" Height="110" 
-                                    Background="#E0E0E0" 
-                                    CornerRadius="12"/>
-                            <TextBlock Text="DWG2RVT" 
-                                       FontSize="11" 
-                                       FontWeight="Normal" 
-                                       HorizontalAlignment="Center" 
-                                       Margin="0,8,0,0"
-                                       Opacity="0"/>
-                        </StackPanel>
-
-                        <!-- Placeholder 4 -->
-                        <StackPanel Margin="0,0,15,15">
-                            <Border Width="110" Height="110" 
-                                    Background="#E0E0E0" 
-                                    CornerRadius="12"/>
-                            <TextBlock Text="DWG2RVT" 
-                                       FontSize="11" 
-                                       FontWeight="Normal" 
-                                       HorizontalAlignment="Center" 
-                                       Margin="0,8,0,0"
-                                       Opacity="0"/>
-                        </StackPanel>
-
-                        <!-- Placeholder 5 -->
-                        <StackPanel Margin="0,0,15,15">
-                            <Border Width="110" Height="110" 
-                                    Background="#E0E0E0" 
-                                    CornerRadius="12"/>
-                            <TextBlock Text="DWG2RVT" 
-                                       FontSize="11" 
-                                       FontWeight="Normal" 
-                                       HorizontalAlignment="Center" 
-                                       Margin="0,8,0,0"
-                                       Opacity="0"/>
-                        </StackPanel>
-                    </WrapPanel>
-                    
-                    <!-- Second Row of Placeholders -->
-                    <WrapPanel Grid.Row="1" Orientation="Horizontal">
-                        <!-- Placeholder 6 -->
-                        <StackPanel Margin="0,0,15,15">
-                            <Border Width="110" Height="110" 
-                                    Background="#E0E0E0" 
-                                    CornerRadius="12"/>
-                        </StackPanel>
-
-                        <!-- Placeholder 7 -->
-                        <StackPanel Margin="0,0,15,15">
-                            <Border Width="110" Height="110" 
-                                    Background="#E0E0E0" 
-                                    CornerRadius="12"/>
-                        </StackPanel>
-
-                        <!-- Placeholder 8 -->
-                        <StackPanel Margin="0,0,15,15">
-                            <Border Width="110" Height="110" 
-                                    Background="#E0E0E0" 
-                                    CornerRadius="12"/>
-                        </StackPanel>
-                    </WrapPanel>
-                </Grid>
-            </ContentControl>
-        </Grid>
-        
-        <!-- Right Sidebar -->
-        <Border x:Name="RightSidebar"
-                Grid.Column="1" 
+        <!-- Title Bar (hidden by default, visible only when showing module panels) -->
+        <Border x:Name="TitleBar"
+                Grid.Row="0" 
                 Background="White" 
-                BorderBrush="#DDDDDD" 
-                BorderThickness="1,0,0,0"
-                Width="320"
-                Padding="20">
-            <StackPanel>
-                <TextBlock Text="Учётная запись" 
-                           FontSize="20" 
-                           FontWeight="Normal" 
-                           Margin="0,0,0,20"/>
+                BorderBrush="#D0D0D0" 
+                BorderThickness="0,0,0,1"
+                Padding="16,8"
+                Visibility="Collapsed">
+            <Grid>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="btnBack"
+                            Content="← Назад"
+                            Style="{StaticResource BackButton}"
+                            Click="BtnBack_Click"
+                            Margin="0,0,16,0"/>
+                    <TextBlock x:Name="txtModuleTitle"
+                               Text="" 
+                               Style="{StaticResource WindowTitle}"/>
+                </StackPanel>
+                <Button Content="✕"
+                        Style="{StaticResource CloseButton}"
+                        HorizontalAlignment="Right"
+                        Click="Window_Close"/>
+            </Grid>
+        </Border>
+        
+        <!-- Main Content -->
+        <Grid x:Name="MainContentGrid" Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="SidebarColumn" Width="280"/>
+            </Grid.ColumnDefinitions>
+            
+            <!-- Left: Plugin Grid -->
+            <Grid x:Name="ContentArea" Grid.Column="0" Background="#F5F5F5">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="20">
+                    <StackPanel>
+                        <ContentControl x:Name="MainContent">
+                            <StackPanel>
+                                <TextBlock Text="Доступные плагины" 
+                                           FontSize="18"
+                                           FontWeight="SemiBold"
+                                           Foreground="Black"
+                                           Margin="0,0,0,16"/>
+                                
+                                <!-- Plugin Grid 3x3 -->
+                                <WrapPanel>
+                                    <!-- DWG2RVT Plugin -->
+                                    <Border x:Name="pnlDwg2rvt"
+                                            Style="{StaticResource PluginCardDisabled}"
+                                            MouseLeftButtonUp="Dwg2rvt_Click">
+                                        <StackPanel>
+                                            <Image x:Name="imgDwg2rvtIcon"
+                                                   Width="64"
+                                                   Height="64"
+                                                   Margin="0,0,0,8"
+                                                   Stretch="Uniform"/>
+                                            <TextBlock Text="DWG2RVT"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       Foreground="#333333"/>
+                                        </StackPanel>
+                                    </Border>
+                                    
+                                    <!-- HVAC Plugin -->
+                                    <Border x:Name="pnlHvac"
+                                            Style="{StaticResource PluginCardDisabled}"
+                                            MouseLeftButtonUp="Hvac_Click">
+                                        <StackPanel>
+                                            <Image x:Name="imgHvacIcon"
+                                                   Width="64"
+                                                   Height="64"
+                                                   Margin="0,0,0,8"
+                                                   Stretch="Uniform"/>
+                                            <TextBlock Text="HVAC"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       Foreground="#333333"/>
+                                        </StackPanel>
+                                    </Border>
+                                    
+                                    <!-- FamilySync Plugin -->
+                                    <Border x:Name="pnlFamilySync"
+                                            Style="{StaticResource PluginCardDisabled}"
+                                            MouseLeftButtonUp="FamilySync_Click">
+                                        <StackPanel>
+                                            <Image x:Name="imgFamilySyncIcon"
+                                                   Width="64"
+                                                   Height="64"
+                                                   Margin="0,0,0,8"
+                                                   Stretch="Uniform"/>
+                                            <TextBlock Text="Family Sync"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       Foreground="#333333"/>
+                                        </StackPanel>
+                                    </Border>
+                                    
+                                    <!-- Placeholder 1-6 -->
+                                    <Border Style="{StaticResource PluginCardDisabled}"/>
+                                    <Border Style="{StaticResource PluginCardDisabled}"/>
+                                    <Border Style="{StaticResource PluginCardDisabled}"/>
+                                    <Border Style="{StaticResource PluginCardDisabled}"/>
+                                    <Border Style="{StaticResource PluginCardDisabled}"/>
+                                    <Border Style="{StaticResource PluginCardDisabled}"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </ContentControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+            
+            <!-- Right Sidebar -->
+            <Grid x:Name="RightSidebar" Grid.Column="1" Background="White">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 
-                <Button x:Name="btnAuth"
-                        Content="Войти в учётную запись" 
-                        Click="BtnAuth_Click"
-                        Padding="15,10"
-                        Background="#E8E8E8"
-                        BorderThickness="0"
-                        Cursor="Hand"
-                        Margin="0,0,0,10">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                CornerRadius="6"
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#D0D0D0"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-                
-                <!-- Modules Info TextBlock -->
-                <TextBlock x:Name="txtModulesInfo"
-                           Text=""
-                           FontSize="11"
-                           Foreground="#28A745"
-                           Margin="0,0,0,10"
-                           TextWrapping="Wrap"
-                           Visibility="Collapsed"/>
-                
-                <!-- Refresh User Data Button -->
-                <Button x:Name="btnRefreshUserData"
-                        Content="🔄 Обновить данные пользователя" 
-                        Click="BtnRefreshUserData_Click"
-                        Padding="10,8"
-                        Background="#E3F2FD"
-                        BorderBrush="#90CAF9"
-                        BorderThickness="1"
-                        Cursor="Hand"
-                        Margin="0,0,0,20"
-                        Visibility="Collapsed"
-                        ToolTip="Обновить список модулей и проверить наличие файлов">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                CornerRadius="4"
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#BBDEFB"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-                
-                <TextBlock Text="Новости" 
-                           FontSize="20" 
-                           FontWeight="Normal" 
-                           Margin="0,0,0,15"/>
-                
-                <Border Background="#F0F0F0" 
-                        CornerRadius="6"
-                        Height="200"
-                        Padding="15">
-                    <TextBlock Text="Здесь будут отображаться новости и обновления..." 
-                               TextWrapping="Wrap"
-                               Foreground="#888888"/>
+                <!-- Account Section -->
+                <Border Grid.Row="0"
+                        BorderBrush="#D0D0D0"
+                        BorderThickness="1,0,0,1"
+                        Padding="16">
+                    <StackPanel>
+                        <TextBlock Text="Учётная запись" 
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Foreground="Black"
+                                   Margin="0,0,0,12"/>
+                        
+                        <!-- Auth Status Container -->
+                        <StackPanel x:Name="pnlAuthStatus">
+                            <!-- Warning Message (shown when not authenticated) -->
+                            <Border x:Name="warningMessage"
+                                    Style="{StaticResource WarningMessage}"
+                                    Margin="0,0,0,8">
+                                <TextBlock Text="⚠ Требуется авторизация"
+                                           FontSize="12"
+                                           Foreground="#856404"/>
+                            </Border>
+                            
+                            <!-- Success Message (shown when authenticated) -->
+                            <Border x:Name="successMessage"
+                                    Style="{StaticResource SuccessMessage}"
+                                    Margin="0,0,0,8"
+                                    Visibility="Collapsed">
+                                <TextBlock Text="✓ Вы авторизованы"
+                                           FontSize="12"
+                                           Foreground="#2D662D"/>
+                            </Border>
+                            
+                            <!-- License Info (shown when authenticated) -->
+                            <StackPanel x:Name="pnlLicenseInfo"
+                                        Visibility="Collapsed"
+                                        Margin="0,0,0,8">
+                                <TextBlock FontSize="12" Foreground="#666666">
+                                    <Run Text="Лицензия: "/>
+                                    <Run x:Name="txtPlan" Text="Pro Plan" FontWeight="SemiBold"/>
+                                </TextBlock>
+                                <TextBlock FontSize="12" Foreground="#666666" Margin="0,4,0,0">
+                                    <Run Text="До: "/>
+                                    <Run x:Name="txtExpiry" Text="15.03.2026" FontWeight="SemiBold"/>
+                                </TextBlock>
+                            </StackPanel>
+                            
+                            <!-- Auth Button -->
+                            <Button x:Name="btnAuth"
+                                    Content="Войти"
+                                    Style="{StaticResource PrimaryButton}"
+                                    Click="BtnAuth_Click"
+                                    Margin="0,8,0,0"/>
+                            
+                            <!-- Refresh Button (hidden by default) -->
+                            <Button x:Name="btnRefreshUserData"
+                                    Content="Обновить данные"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Visibility="Collapsed"
+                                    Click="BtnRefreshUserData_Click"
+                                    Margin="0,8,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
                 </Border>
                 
-                <!-- User Status (bottom right corner) -->
-                <TextBlock x:Name="txtUserStatus"
-                           Text=""
-                           FontSize="11"
-                           Foreground="#28A745"
-                           Margin="0,20,0,0"
-                           TextWrapping="Wrap"
-                           Visibility="Collapsed"/>
+                <!-- News Section -->
+                <ScrollViewer Grid.Row="1"
+                              VerticalScrollBarVisibility="Auto"
+                              BorderBrush="#D0D0D0"
+                              BorderThickness="1,0,0,1">
+                    <StackPanel Margin="16">
+                        <TextBlock Text="Новости" 
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Foreground="Black"
+                                   Margin="0,0,0,12"/>
+                        
+                        <!-- News Item 1 -->
+                        <Border Background="#F9F9F9"
+                                BorderBrush="#E0E0E0"
+                                BorderThickness="1"
+                                CornerRadius="2"
+                                Padding="12"
+                                Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="12.02.2026"
+                                           FontSize="10"
+                                           Foreground="#999999"
+                                           Margin="0,0,0,4"/>
+                                <TextBlock Text="Обновление v2.0"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="#333333"
+                                           Margin="0,0,0,4"/>
+                                <TextBlock Text="Добавлена поддержка Revit 2025. Улучшена производительность модуля HVAC."
+                                           FontSize="11"
+                                           Foreground="#666666"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                        
+                        <!-- News Item 2 -->
+                        <Border Background="#F9F9F9"
+                                BorderBrush="#E0E0E0"
+                                BorderThickness="1"
+                                CornerRadius="2"
+                                Padding="12">
+                            <StackPanel>
+                                <TextBlock Text="05.02.2026"
+                                           FontSize="10"
+                                           Foreground="#999999"
+                                           Margin="0,0,0,4"/>
+                                <TextBlock Text="Новый плагин"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="#333333"
+                                           Margin="0,0,0,4"/>
+                                <TextBlock Text="Скоро выйдет модуль Electra для работы с электросхемами."
+                                           FontSize="11"
+                                           Foreground="#666666"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
                 
-                <!-- Debug Log Button -->
-                <Button x:Name="btnOpenLog"
-                        Content="📋 Открыть Debug Log" 
-                        Click="BtnOpenLog_Click"
-                        Padding="10,8"
-                        Background="#F8F9FA"
-                        BorderBrush="#DDDDDD"
-                        BorderThickness="1"
-                        Cursor="Hand"
-                        Margin="0,10,0,0"
-                        ToolTip="Открыть файл логов для отладки динамической загрузки модулей">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                CornerRadius="4"
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#E8E8E8"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-                
-                <!-- Modules Info Button -->
-                <Button x:Name="btnModulesInfo"
-                        Content="📦 Инфо о модулях" 
-                        Click="BtnModulesInfo_Click"
-                        Padding="10,8"
-                        Background="#E3F2FD"
-                        BorderBrush="#90CAF9"
-                        BorderThickness="1"
-                        Cursor="Hand"
-                        Margin="0,8,0,0"
-                        ToolTip="Показать информацию о загруженных DLL модулях">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                CornerRadius="4"
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#BBDEFB"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-            </StackPanel>
+                <!-- Debug Section -->
+                <Border Grid.Row="2"
+                        Background="#F5F5F5"
+                        Padding="16"
+                        BorderBrush="#D0D0D0"
+                        BorderThickness="1,0,0,0">
+                    <StackPanel>
+                    <Button Content="📋 Debug Log"
+                            Style="{StaticResource SecondaryButton}"
+                            Margin="0,0,0,8"
+                            Click="BtnDebugLog_Click"/>
+                    <Button Content="📦 Инфо о модулях"
+                            Style="{StaticResource SecondaryButton}"
+                            Click="BtnModulesInfo_Click"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+        
+        <!-- Status Bar -->
+        <Border Grid.Row="2"
+                Background="#F0F0F0"
+                BorderBrush="#D0D0D0"
+                BorderThickness="0,1,0,0"
+                Padding="16,8">
+            <Grid>
+                <TextBlock x:Name="txtStatusLeft"
+                           Text="Готов к работе"
+                           FontSize="12"
+                           Foreground="#666666"
+                           HorizontalAlignment="Left"/>
+                <TextBlock x:Name="txtStatusRight"
+                           Text="Revit 2024 | Build 23.1.12"
+                           FontSize="12"
+                           Foreground="#666666"
+                           HorizontalAlignment="Right"/>
+            </Grid>
         </Border>
     </Grid>
 </Window>

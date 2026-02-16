@@ -68,8 +68,9 @@ $MainFolder = [System.IO.Path]::Combine($DependenciesFolder, "main")
 $Dwg2rvtFolder = [System.IO.Path]::Combine($DependenciesFolder, "dwg2rvt")
 $HvacFolder = [System.IO.Path]::Combine($DependenciesFolder, "hvac")
 $FamilySyncFolder = [System.IO.Path]::Combine($DependenciesFolder, "family_sync")
+$LogsFolder = [System.IO.Path]::Combine($DependenciesFolder, "logs")
 
-foreach ($folder in @($DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder, $FamilySyncFolder)) {
+foreach ($folder in @($DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder, $FamilySyncFolder, $LogsFolder)) {
     if (-not (Test-Path $folder)) {
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
         Write-Host "Created directory: $folder"
@@ -160,7 +161,7 @@ if (Test-Path $BuildNumberSource) {
 }
 
 # Copy icons to main folder
-$SourceIcons = [System.IO.Path]::Combine($ProjectDir, "UI", "icons")
+$SourceIcons = [System.IO.Path]::Combine($ProjectDir, "PluginsManager", "UI", "icons")
 $DestIcons = [System.IO.Path]::Combine($MainFolder, "UI", "icons")
 if (Test-Path $SourceIcons) {
     if (-not (Test-Path $DestIcons)) {

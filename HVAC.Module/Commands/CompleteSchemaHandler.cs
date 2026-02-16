@@ -24,6 +24,11 @@ namespace HVAC.Module.Commands
         private ElementId _annotationSymbolSymbolId;
         public ElementId _textNoteTypeId;
 
+        public CompleteSchemaHandler()
+        {
+            // UIApplication will be provided in Execute()
+        }
+        
         public CompleteSchemaHandler(UIApplication uiApp)
         {
             _uiApp = uiApp;
@@ -43,9 +48,6 @@ namespace HVAC.Module.Commands
                 }
                 
                 _doc = uidoc.Document;
-                
-                // Initialize Updater if not already initialized
-                EnsureUpdaterInitialized(app);
                 
                 using (TransactionGroup trg = new TransactionGroup(_doc, "Созданием схемы"))
                 {
@@ -101,10 +103,18 @@ namespace HVAC.Module.Commands
                     }
                     finally
                     {
-                        // Only enable if Updater is initialized
+                        // Only enable Updater if checkbox is enabled AND Updater is initialized
                         if (Updater._m_updaterId != null)
                         {
-                            UpdaterRegistry.EnableUpdater(Updater._m_updaterId);
+                            if (UI.HVACSyncState.IsSyncEnabled)
+                            {
+                                UpdaterRegistry.EnableUpdater(Updater._m_updaterId);
+                                DebugLogger.Log("[HVAC-CMD] Updater enabled (sync checkbox ON)");
+                            }
+                            else
+                            {
+                                DebugLogger.Log("[HVAC-CMD] Updater NOT enabled (sync checkbox OFF)");
+                            }
                         }
                     }
                 }
@@ -130,38 +140,6 @@ namespace HVAC.Module.Commands
                     TopYOfAnnotation = bb.Max.Y;
             }
             return TopYOfAnnotation;
-        }
-        
-        private void EnsureUpdaterInitialized(UIApplication uiApp)
-        {
-            if (HVACSuperScheme.App._updater == null)
-            {
-                DebugLogger.Log("[HVAC-CMD] Initializing Updater...");
-                
-                // Store UIApplication for Idling events
-                HVACSuperScheme.App._uiapp = uiApp;
-                
-                // Initialize element filters BEFORE creating Updater
-                FilterUtils.InitElementFilters();
-                DebugLogger.Log("[HVAC-CMD] Element filters initialized");
-                
-                // Get AddInId from the current application
-                var addInId = uiApp.ActiveAddInId;
-                
-                // Create Updater instance
-                HVACSuperScheme.App._updater = new Updater(addInId);
-                
-                // Register the updater
-                UpdaterRegistry.RegisterUpdater(HVACSuperScheme.App._updater);
-                
-                DebugLogger.Log("[HVAC-CMD] Updater initialized and registered successfully");
-            }
-            else if (HVACSuperScheme.App._uiapp == null)
-            {
-                // Updater exists but UIApp not stored yet
-                HVACSuperScheme.App._uiapp = uiApp;
-                DebugLogger.Log("[HVAC-CMD] UIApplication stored for Idling events");
-            }
         }
 
         public string GetName()

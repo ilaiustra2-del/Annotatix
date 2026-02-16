@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using System.Windows;
-using System.Windows.Input;
 using PluginsManager.Core;
 
 namespace PluginsManager.UI
@@ -9,7 +8,6 @@ namespace PluginsManager.UI
     public partial class AuthPanel : Window
     {
         private readonly AuthService _authService;
-        private bool _showPassword = false;
 
         public AuthPanel()
         {
@@ -43,68 +41,6 @@ namespace PluginsManager.UI
             }
         }
 
-        private void BtnClose_Click(object sender, RoutedEventArgs e)
-        {
-            this.DialogResult = false;
-            this.Close();
-        }
-        
-        private void BtnHelp_Click(object sender, RoutedEventArgs e)
-        {
-            MessageBox.Show("Для авторизации введите email и пароль, полученные при регистрации.\n\nПо вопросам: support@annotatix.ai", 
-                "Помощь", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        
-        private void BtnShowPassword_Click(object sender, RoutedEventArgs e)
-        {
-            // Toggle password visibility (simplified - in WPF PasswordBox doesn't support this directly)
-            _showPassword = !_showPassword;
-            btnShowPassword.Content = _showPassword ? "🙈" : "👁";
-            // Note: Full password visibility toggle requires a custom control with TextBox/PasswordBox swap
-        }
-        
-        private void TxtPassword_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.Enter)
-            {
-                BtnLogin_Click(sender, e);
-            }
-        }
-        
-        private void ShowStatus(string message, bool isError = false, bool isSuccess = false)
-        {
-            statusBorder.Visibility = Visibility.Visible;
-            txtStatus.Text = message;
-            
-            if (isError)
-            {
-                statusBorder.Background = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(255, 243, 205)); // Warning yellow
-                statusBorder.BorderBrush = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(255, 230, 156));
-                txtStatus.Foreground = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(133, 100, 4));
-            }
-            else if (isSuccess)
-            {
-                statusBorder.Background = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(231, 245, 231)); // Success green
-                statusBorder.BorderBrush = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(195, 230, 195));
-                txtStatus.Foreground = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(45, 102, 45));
-            }
-            else
-            {
-                statusBorder.Background = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(240, 240, 240)); // Info gray
-                statusBorder.BorderBrush = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(208, 208, 208));
-                txtStatus.Foreground = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(51, 51, 51));
-            }
-        }
-
         private async void BtnLogin_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -120,21 +56,27 @@ namespace PluginsManager.UI
                 if (string.IsNullOrEmpty(login))
                 {
                     System.Diagnostics.Debug.WriteLine("[AUTH-PANEL] Validation failed: empty login");
-                    ShowStatus("Пожалуйста, заполните поле логина", isError: true);
+                    txtStatus.Text = "Введите логин";
+                    txtStatus.Foreground = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(220, 53, 69));
                     return;
                 }
 
                 if (string.IsNullOrEmpty(password))
                 {
                     System.Diagnostics.Debug.WriteLine("[AUTH-PANEL] Validation failed: empty password");
-                    ShowStatus("Пожалуйста, заполните поле пароля", isError: true);
+                    txtStatus.Text = "Введите пароль";
+                    txtStatus.Foreground = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(220, 53, 69));
                     return;
                 }
                 
                 System.Diagnostics.Debug.WriteLine("[AUTH-PANEL] Validation passed, disabling button");
                 
                 btnLogin.IsEnabled = false;
-                ShowStatus("Выполняется вход...");
+                txtStatus.Text = "Проверка данных...";
+                txtStatus.Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0, 123, 255));
                 this.UpdateLayout();
                 
                 System.Diagnostics.Debug.WriteLine("[AUTH-PANEL] Calling AuthService.AuthenticateAsync...");
@@ -163,7 +105,9 @@ namespace PluginsManager.UI
                         }
                     }
                     
-                    ShowStatus($"Вход выполнен успешно!{modulesInfo}", isSuccess: true);
+                    txtStatus.Text = $"Авторизация успешна!{modulesInfo}";
+                    txtStatus.Foreground = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(40, 167, 69));
 
                     AuthService.CurrentUser = result;
 
@@ -175,7 +119,9 @@ namespace PluginsManager.UI
                 {
                     System.Diagnostics.Debug.WriteLine($"[AUTH-PANEL] FAILED - Error: {result.ErrorMessage}");
                     
-                    ShowStatus(result.ErrorMessage ?? "Неверный логин или пароль", isError: true);
+                    txtStatus.Text = result.ErrorMessage ?? "Неверный логин или пароль";
+                    txtStatus.Foreground = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(220, 53, 69));
                     btnLogin.IsEnabled = true;
                 }
             }
@@ -184,7 +130,9 @@ namespace PluginsManager.UI
                 MessageBox.Show($"ИСКЛЮЧЕНИЕ!\n\nТип: {ex.GetType().Name}\nСообщение: {ex.Message}\n\nStack:\n{ex.StackTrace}", 
                     "Критическая ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
                 
-                ShowStatus($"Ошибка: {ex.Message}", isError: true);
+                txtStatus.Text = $"Ошибка: {ex.Message}";
+                txtStatus.Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(220, 53, 69));
                 btnLogin.IsEnabled = true;
             }
         }

@@ -49,9 +49,21 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="UI\icons\dwg2rvt.png" />
-    <Resource Include="UI\icons\dwg2rvt32.png" />
-    <Resource Include="UI\icons\dwg2rvt80.png" />
+    <Content Include="PluginsManager\UI\icons\dwg2rvt.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="PluginsManager\UI\icons\dwg2rvt32.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="PluginsManager\UI\icons\dwg2rvt80.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="PluginsManager\UI\icons\hvac80.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="PluginsManager\UI\icons\familysync80.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

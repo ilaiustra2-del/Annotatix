@@ -6,7 +6,6 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using Autodesk.Revit.UI;
-using PluginsManager.Core;
 
 namespace PluginsManager.UI
 {
@@ -57,29 +56,33 @@ namespace PluginsManager.UI
             Commands.OpenDwg2rvtPanelCommand.SetHubPanel(this);
             Commands.OpenHvacPanelCommand.SetHubPanel(this);
             
-            // Load icons from assembly location
+            // Load icon from assembly location
             try
             {
                 var assembly = System.Reflection.Assembly.GetExecutingAssembly();
                 var assemblyPath = Path.GetDirectoryName(assembly.Location);
-                var iconsPath = Path.Combine(assemblyPath, "UI", "icons");
+                var iconPath = Path.Combine(assemblyPath, "UI", "icons", "dwg2rvt80.png");
                 
-                System.Diagnostics.Debug.WriteLine($"[HUB] Looking for icons at: {iconsPath}");
-                DebugLogger.Log($"[HUB] Looking for icons at: {iconsPath}");
+                System.Diagnostics.Debug.WriteLine($"[HUB] Looking for icon at: {iconPath}");
                 
-                // Load DWG2RVT icon
-                LoadIcon(Path.Combine(iconsPath, "dwg2rvt80.png"), imgDwg2rvtIcon);
-                
-                // Load HVAC icon
-                LoadIcon(Path.Combine(iconsPath, "hvac80.png"), imgHvacIcon);
-                
-                // Load FamilySync icon
-                LoadIcon(Path.Combine(iconsPath, "familysync80.png"), imgFamilySyncIcon);
+                if (File.Exists(iconPath))
+                {
+                    var bitmap = new BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.UriSource = new Uri(iconPath, UriKind.Absolute);
+                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmap.EndInit();
+                    imgDwg2rvtIcon.Source = bitmap;
+                    System.Diagnostics.Debug.WriteLine("[HUB] Icon loaded successfully");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[HUB] Icon file not found: {iconPath}");
+                }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading icons: {ex.Message}");
-                DebugLogger.Log($"[HUB] Error loading icons: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading icon: {ex.Message}");
             }
             
             // Set version number from BuildNumber.txt or assembly
@@ -92,32 +95,25 @@ namespace PluginsManager.UI
                 
                 System.Diagnostics.Debug.WriteLine($"[HUB] Looking for BuildNumber.txt at: {buildNumberFile}");
                 
-                string versionString = "";
                 if (File.Exists(buildNumberFile))
                 {
                     var buildNumber = File.ReadAllText(buildNumberFile).Trim();
-                    versionString = $"v 3.{buildNumber}";
-                    this.Title = $"Менеджер плагинов AnnotatiX.AI  {versionString}";
-                    System.Diagnostics.Debug.WriteLine($"[HUB] Version set from BuildNumber.txt: {versionString}");
+                    txtVersion.Text = $"v 3.{buildNumber}";
+                    System.Diagnostics.Debug.WriteLine($"[HUB] Version set from BuildNumber.txt: v 3.{buildNumber}");
                 }
                 else
                 {
                     // Fallback to assembly version
                     var version = assembly.GetName().Version;
                     // Version format is Major.Minor.Build.Revision (e.g. 3.001.0.0)
-                    versionString = $"v {version.Major}.{version.Minor}";
-                    this.Title = $"Менеджер плагинов AnnotatiX.AI  {versionString}";
-                    System.Diagnostics.Debug.WriteLine($"[HUB] Version set from assembly: {versionString}");
+                    txtVersion.Text = $"v {version.Major}.{version.Minor}";
+                    System.Diagnostics.Debug.WriteLine($"[HUB] Version set from assembly: v {version.Major}.{version.Minor}");
                 }
-                
-                // Update footer version display
-                txtStatusRight.Text = $"Revit 2024 | Build {versionString}";
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[HUB] Error getting version: {ex.Message}");
-                this.Title = "Менеджер плагинов AnnotatiX.AI  v 3.0"; // Fallback
-                txtStatusRight.Text = "Revit 2024 | Build v 3.0";
+                txtVersion.Text = "v 3.0"; // Fallback
             }
             
             // Load FamilySync module automatically (doesn't require authentication)
@@ -188,84 +184,6 @@ namespace PluginsManager.UI
         /// <summary>
         /// Load FamilySync module automatically at startup
         /// </summary>
-        private void Window_Close(object sender, RoutedEventArgs e)
-        {
-            this.Close();
-        }
-        
-        /// <summary>
-        /// Load an icon from file to an Image control
-        /// </summary>
-        private void LoadIcon(string iconPath, System.Windows.Controls.Image imageControl)
-        {
-            try
-            {
-                if (File.Exists(iconPath))
-                {
-                    var bitmap = new BitmapImage();
-                    bitmap.BeginInit();
-                    bitmap.UriSource = new Uri(iconPath, UriKind.Absolute);
-                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                    bitmap.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-                    bitmap.EndInit();
-                    imageControl.Source = bitmap;
-                    System.Diagnostics.Debug.WriteLine($"[HUB] Icon loaded: {Path.GetFileName(iconPath)} to {imageControl.Name}");
-                    DebugLogger.Log($"[HUB] Icon loaded: {Path.GetFileName(iconPath)} to {imageControl.Name}");
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"[HUB] Icon file not found: {iconPath}");
-                    DebugLogger.Log($"[HUB] Icon file not found: {iconPath}");
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading icon {iconPath}: {ex.Message}");
-                DebugLogger.Log($"[HUB] Error loading icon {iconPath}: {ex.Message}");
-            }
-        }
-        
-        private void BtnDebugLog_Click(object sender, RoutedEventArgs e)
-        {
-            // Open debug log file in Notepad
-            try
-            {
-                Core.DebugLogger.OpenLogFile();
-                Core.DebugLogger.Log("[HUB] User opened debug log file");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Не удалось открыть лог-файл:\n{ex.Message}\n\nПуть: {Core.DebugLogger.GetLogFilePath()}", 
-                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
-                DebugLogger.Log($"[HUB] ERROR opening log file: {ex.Message}");
-            }
-        }
-        
-        private void BtnModulesInfo_Click(object sender, RoutedEventArgs e)
-        {
-            // Show modules info
-            var info = "Установленные модули:\n\n";
-            
-            if (Core.AuthService.CurrentUser != null && Core.AuthService.CurrentUser.Modules != null)
-            {
-                foreach (var module in Core.AuthService.CurrentUser.Modules)
-                {
-                    info += $"• {module.ModuleTag}\n";
-                    info += $"  Активен: {(module.IsActive ? "Да" : "Нет")}\n";
-                    info += $"  Период: {module.StartDate:dd.MM.yyyy} - {module.EndDate:dd.MM.yyyy}\n\n";
-                }
-            }
-            else
-            {
-                info += "Нет информации о модулях.\nВыполните авторизацию.";
-            }
-            
-            MessageBox.Show(info, "Информация о модулях", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        
-        /// <summary>
-        /// Load FamilySync module automatically at startup
-        /// </summary>
         private void LoadFamilySyncModule()
         {
             try
@@ -284,10 +202,6 @@ namespace PluginsManager.UI
                     if (Core.DynamicModuleLoader.LoadModule("family_sync", familySyncDllPath))
                     {
                         System.Diagnostics.Debug.WriteLine("[HUB] FamilySync module loaded successfully");
-                        
-                        // Enable and make FamilySync card fully visible
-                        pnlFamilySync.IsEnabled = true;
-                        pnlFamilySync.Opacity = 1.0;
                         
                         // Create FamilySync ExternalEvent AFTER module is loaded
                         try
@@ -336,42 +250,6 @@ namespace PluginsManager.UI
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[HUB] Error loading FamilySync module: {ex.Message}");
-            }
-        }
-        
-        private void Hvac_Click(object sender, MouseButtonEventArgs e)
-        {
-            // Check if button is enabled
-            if (!pnlHvac.IsEnabled)
-            {
-                System.Diagnostics.Debug.WriteLine("[HUB] HVAC button is disabled");
-                return;
-            }
-            
-            try
-            {
-                Core.DebugLogger.Log("");
-                Core.DebugLogger.LogSeparator('-');
-                Core.DebugLogger.Log("[HUB] User clicked HVAC button");
-                Core.DebugLogger.Log("[HUB] Triggering OpenHVACPanelCommand...");
-                
-                // Raise the ExternalEvent to trigger OpenHVACPanelCommand
-                // which will create ExternalEvents in proper IExternalCommand context
-                if (_openHvacPanelEvent != null)
-                {
-                    _openHvacPanelEvent.Raise();
-                    Core.DebugLogger.Log("[HUB] OpenHVACPanelCommand event raised");
-                }
-                else
-                {
-                    Core.DebugLogger.Log("[HUB] ERROR: _openHvacPanelEvent is null");
-                    MessageBox.Show("Ошибка открытия модуля HVAC", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-            catch (Exception ex)
-            {
-                Core.DebugLogger.Log($"[HUB] ERROR loading HVAC: {ex.Message}");
-                MessageBox.Show($"Ошибка загрузки модуля HVAC:\n{ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
         
@@ -424,12 +302,12 @@ namespace PluginsManager.UI
                 Core.DebugLogger.Log("");
                 
                 // Switch to FamilySync panel
+                txtTitle.Text = "Family Sync";
                 MainContent.Content = panelContent;
-                // Hide sidebar and expand content to full width
-                RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
-                System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
-                TitleBar.Visibility = System.Windows.Visibility.Visible;
-                txtModuleTitle.Text = "Family Sync - Синхронизация параметров вложенных семейств";
+                btnBack.Visibility = Visibility.Visible;
+                
+                // Hide Right Sidebar when FamilySync panel is open
+                RightSidebar.Visibility = Visibility.Collapsed;
             }
             catch (Exception ex)
             {
@@ -438,58 +316,6 @@ namespace PluginsManager.UI
             }
         }
 
-        private async void BtnAuth_Click(object sender, RoutedEventArgs e)
-        {
-            // Check if already authenticated - then logout
-            if (Core.AuthService.CurrentUser != null && Core.AuthService.CurrentUser.IsSuccess)
-            {
-                // Logout
-                var result = MessageBox.Show("Вы уверены, что хотите выйти?", "Подтверждение", MessageBoxButton.YesNo, MessageBoxImage.Question);
-                if (result == MessageBoxResult.Yes)
-                {
-                    Core.AuthService.Logout();
-                    
-                    // Reset UI
-                    warningMessage.Visibility = Visibility.Visible;
-                    successMessage.Visibility = Visibility.Collapsed;
-                    pnlLicenseInfo.Visibility = Visibility.Collapsed;
-                    btnAuth.Content = "Войти";
-                    btnRefreshUserData.Visibility = Visibility.Collapsed;
-                    
-                    // Disable all module buttons
-                    pnlDwg2rvt.IsEnabled = false;
-                    pnlDwg2rvt.Opacity = 0.5;
-                    pnlHvac.IsEnabled = false;
-                    pnlHvac.Opacity = 0.5;
-                    pnlFamilySync.IsEnabled = false;
-                    pnlFamilySync.Opacity = 0.5;
-                }
-                return;
-            }
-            
-            // Show auth panel
-            var authPanel = new AuthPanel();
-            var dialogResult = authPanel.ShowDialog();
-            
-            if (dialogResult == true && Core.AuthService.CurrentUser != null)
-            {
-                // Authentication successful
-                var currentUser = Core.AuthService.CurrentUser;
-                
-                // Download missing modules
-                await DownloadMissingModules(currentUser.ModuleFiles);
-                
-                // Update UI
-                ShowModulesInfo(currentUser.Modules);
-                
-                // Show refresh button
-                btnRefreshUserData.Visibility = Visibility.Visible;
-                
-                // Activate module buttons
-                ActivateModuleButtons(currentUser.Modules);
-            }
-        }
-        
         private void Dwg2rvt_Click(object sender, MouseButtonEventArgs e)
         {
             // Check if button is enabled
@@ -523,7 +349,7 @@ namespace PluginsManager.UI
         private void HVAC_Click(object sender, MouseButtonEventArgs e)
         {
             // Check if button is enabled
-            if (!pnlHvac.IsEnabled)
+            if (!pnlHVAC.IsEnabled)
             {
                 System.Diagnostics.Debug.WriteLine("[HUB] HVAC button is disabled");
                 MessageBox.Show("Модуль HVAC недоступен. Пожалуйста, войдите в учётную запись.", 
@@ -565,22 +391,62 @@ namespace PluginsManager.UI
         /// </summary>
         public void ShowHvacPanel(object panelContent)
         {
+            txtTitle.Text = "HVAC";
             MainContent.Content = panelContent;
-            // Hide sidebar and expand content to full width
-            RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
-            System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
-            TitleBar.Visibility = System.Windows.Visibility.Visible;
-            txtModuleTitle.Text = "HVAC SuperScheme - Построение принципиальных схем";
+            btnBack.Visibility = Visibility.Visible;
+            
+            // Hide Right Sidebar when HVAC panel is open
+            RightSidebar.Visibility = Visibility.Collapsed;
         }
 
         private void BtnBack_Click(object sender, RoutedEventArgs e)
         {
             // Back to Hub
+            txtTitle.Text = "Панель управления плагинами";
             MainContent.Content = _hubContent;
-            // Show sidebar and restore normal layout
-            RightSidebar.Visibility = System.Windows.Visibility.Visible;
-            System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 1);
-            TitleBar.Visibility = System.Windows.Visibility.Collapsed;
+            btnBack.Visibility = Visibility.Collapsed;
+            
+            // Show Right Sidebar when back to hub
+            RightSidebar.Visibility = Visibility.Visible;
+        }
+        
+        /// <summary>
+        /// Open debug log file in Notepad
+        /// </summary>
+        private void BtnOpenLog_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Core.DebugLogger.OpenLogFile();
+                Core.DebugLogger.Log("[HUB] User opened debug log file");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Не удалось открыть лог-файл: {ex.Message}\n\nПуть: {Core.DebugLogger.GetLogFilePath()}", 
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        
+        /// <summary>
+        /// Show loaded modules information
+        /// </summary>
+        private void BtnModulesInfo_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var loadedModules = Core.DynamicModuleLoader.GetLoadedModulesInfo();
+                var message = "=== ИНФОРМАЦИЯ О ЗАГРУЖЕННЫХ МОДУЛЯХ ===\n\n" + loadedModules;
+                
+                Core.DebugLogger.Log("[HUB] User requested modules info");
+                Core.DebugLogger.Log(message);
+                
+                MessageBox.Show(message, "Загруженные модули", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при получении информации о модулях: {ex.Message}", 
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
         
         /// <summary>
@@ -595,12 +461,12 @@ namespace PluginsManager.UI
                 Core.DebugLogger.Log($"[HUB] Panel content type: {panelContent.GetType().Name}");
                 
                 // Switch to dwg2rvt panel
+                txtTitle.Text = "DWG2RVT";
                 MainContent.Content = panelContent;
-                // Hide sidebar and expand content to full width
-                RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
-                System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
-                TitleBar.Visibility = System.Windows.Visibility.Visible;
-                txtModuleTitle.Text = "DWG2RVT";
+                btnBack.Visibility = Visibility.Visible;
+                
+                // Hide Right Sidebar when dwg2rvt panel is open
+                RightSidebar.Visibility = Visibility.Collapsed;
                 
                 Core.DebugLogger.Log("[HUB] Panel displayed successfully");
                 Core.DebugLogger.LogSeparator('-');
@@ -614,37 +480,124 @@ namespace PluginsManager.UI
             }
         }
         
+        private async void BtnAuth_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // Check if user is already logged in (button shows "Выйти")
+                if (Core.AuthService.CurrentUser != null && Core.AuthService.CurrentUser.IsSuccess)
+                {
+                    // Logout
+                    var result = MessageBox.Show("Вы уверены, что хотите выйти?", 
+                        "Выход", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        Core.AuthService.Logout();
+                        
+                        // Reset UI
+                        btnAuth.Content = "Войти в учётную запись";
+                        txtModulesInfo.Text = "";
+                        txtModulesInfo.Visibility = Visibility.Collapsed;
+                        btnRefreshUserData.Visibility = Visibility.Collapsed;
+                        
+                        // Disable module buttons
+                        pnlDwg2rvt.IsEnabled = false;
+                        pnlDwg2rvt.Opacity = 0.5;
+                        pnlHVAC.IsEnabled = false;
+                        pnlHVAC.Opacity = 0.5;
+                        
+                        System.Diagnostics.Debug.WriteLine("[AUTH] User logged out");
+                    }
+                    return;
+                }
+                
+                System.Diagnostics.Debug.WriteLine("[AUTH] Opening authentication panel...");
+                
+                // Open authentication panel
+                var authPanel = new AuthPanel();
+                bool? result2 = authPanel.ShowDialog();
+                
+                System.Diagnostics.Debug.WriteLine($"[AUTH] Dialog result: {result2}");
+                
+                if (result2 == true)
+                {
+                    // Log authentication success with timestamp
+                    var authTimestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+                    Core.DebugLogger.Log("");
+                    Core.DebugLogger.LogSeparator();
+                    Core.DebugLogger.Log("[AUTH] *** AUTHENTICATION SUCCESSFUL ***");
+                    Core.DebugLogger.Log("[AUTH] Now loading modules dynamically...");
+                    Core.DebugLogger.LogSeparator();
+                    Core.DebugLogger.Log("");
+                    
+                    // Authentication successful
+                    var currentUser = Core.AuthService.CurrentUser;
+                    if (currentUser != null && currentUser.IsSuccess)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[AUTH] SUCCESS - User: {currentUser.Login}");
+                        
+                        // Download missing module files
+                        await DownloadMissingModules(currentUser.ModuleFiles);
+                        
+                        // Update UI
+                        btnAuth.Content = "Выйти";
+                        
+                        // Show modules info
+                        ShowModulesInfo(currentUser.Modules);
+                        
+                        // Show refresh button
+                        btnRefreshUserData.Visibility = Visibility.Visible;
+                        
+                        // Activate module buttons based on user's modules
+                        ActivateModuleButtons(currentUser.Modules);
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[AUTH] ERROR - Authentication result is null or failed");
+                        MessageBox.Show("Ошибка: нет данных о пользователе", 
+                            "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[AUTH] Authentication cancelled or failed");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AUTH] EXCEPTION - Client side error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[AUTH] Stack trace: {ex.StackTrace}");
+                
+                MessageBox.Show($"Ошибка на стороне плагина:\n{ex.Message}\n\nТип: {ex.GetType().Name}", 
+                    "Ошибка плагина", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
         /// <summary>
         /// Show modules information in the UI
         /// </summary>
         private void ShowModulesInfo(List<Core.UserModule> modules)
         {
-            // Update UI for authenticated state
-            warningMessage.Visibility = Visibility.Collapsed;
-            successMessage.Visibility = Visibility.Visible;
-            pnlLicenseInfo.Visibility = Visibility.Visible;
-            btnAuth.Content = "Выйти";
-            
             if (modules == null || modules.Count == 0)
             {
-                txtPlan.Text = "Free Plan";
-                txtExpiry.Text = "N/A";
+                txtModulesInfo.Text = "Модули: нет активных";
+                txtModulesInfo.Visibility = Visibility.Visible;
                 return;
             }
             
             var activeModules = modules.Where(m => m.IsActive).ToList();
-            if (activeModules.Count > 0)
+            if (activeModules.Count == 0)
             {
-                txtPlan.Text = "Pro Plan";
-                // Show earliest expiry date
-                var earliestExpiry = activeModules.Min(m => m.EndDate);
-                txtExpiry.Text = earliestExpiry.ToString("dd.MM.yyyy");
+                txtModulesInfo.Text = "Модули: нет активных";
+                txtModulesInfo.Visibility = Visibility.Visible;
+                return;
             }
-            else
-            {
-                txtPlan.Text = "Free Plan";
-                txtExpiry.Text = "N/A";
-            }
+            
+            var moduleDetails = activeModules.Select(m => 
+                $"{m.ModuleTag} (до {m.EndDate:dd.MM.yyyy})").ToList();
+            txtModulesInfo.Text = $"Модули: {string.Join(", ", moduleDetails)}";
+            txtModulesInfo.Visibility = Visibility.Visible;
         }
         
         /// <summary>
@@ -761,8 +714,8 @@ namespace PluginsManager.UI
                     // First, reset all module buttons to disabled state
                     pnlDwg2rvt.IsEnabled = false;
                     pnlDwg2rvt.Opacity = 0.5;
-                    pnlHvac.IsEnabled = false;
-                    pnlHvac.Opacity = 0.5;
+                    pnlHVAC.IsEnabled = false;
+                    pnlHVAC.Opacity = 0.5;
                     
                     // Now re-activate based on fresh data and file availability
                     ActivateModuleButtons(result.Modules);
@@ -888,15 +841,6 @@ namespace PluginsManager.UI
             Core.DebugLogger.Log(Core.DynamicModuleLoader.GetLoadedModulesInfo());
             Core.DebugLogger.Log("[HUB] ============================");
             Core.DebugLogger.Log("");
-            
-            // Always activate FamilySync module (independent of user subscription)
-            System.Diagnostics.Debug.WriteLine("[HUB] Ensuring FamilySync is always activated...");
-            if (Core.DynamicModuleLoader.GetModuleInstance("family_sync") != null)
-            {
-                pnlFamilySync.IsEnabled = true;
-                pnlFamilySync.Opacity = 1.0;
-                System.Diagnostics.Debug.WriteLine("[HUB] FamilySync activated (always available)");
-            }
         }
         
         /// <summary>
@@ -962,8 +906,8 @@ namespace PluginsManager.UI
                 
                 if (Core.DynamicModuleLoader.LoadModule("hvac", moduleDllPath))
                 {
-                    pnlHvac.IsEnabled = true;
-                    pnlHvac.Opacity = 1.0;
+                    pnlHVAC.IsEnabled = true;
+                    pnlHVAC.Opacity = 1.0;
                     System.Diagnostics.Debug.WriteLine("[HUB] ✓ HVAC module loaded and activated");
                 }
                 else

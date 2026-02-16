@@ -13,14 +13,30 @@ namespace PluginsManager.Core
 
         static DebugLogger()
         {
-            // Log to user's temp folder
-            string tempPath = Path.GetTempPath();
-            _logFilePath = Path.Combine(tempPath, "plugins_manager_debug.log");
+            // Log to annotatix_dependencies/logs folder
+            string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string logFolder = Path.Combine(appDataPath, "Autodesk", "Revit", "Addins", "2024", "annotatix_dependencies", "logs");
+            
+            // Create logs folder if it doesn't exist
+            try
+            {
+                if (!Directory.Exists(logFolder))
+                {
+                    Directory.CreateDirectory(logFolder);
+                }
+            }
+            catch
+            {
+                // Fallback to temp if can't create directory
+                logFolder = Path.GetTempPath();
+            }
+            
+            _logFilePath = Path.Combine(logFolder, "annotatix_debug.log");
             
             // Clear log on application start
             try
             {
-                File.WriteAllText(_logFilePath, $"=== Plugins Manager Debug Log Started: {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===\n\n");
+                File.WriteAllText(_logFilePath, $"=== Annotatix Debug Log Started: {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===\n\n");
             }
             catch { }
         }
