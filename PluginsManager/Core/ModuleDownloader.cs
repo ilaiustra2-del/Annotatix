@@ -58,7 +58,33 @@ namespace PluginsManager.Core
                 }
                 
                 // 2. Download DLL file
-                var dllFileName = $"{moduleTag}.Module.dll";
+                // Get correct DLL name based on module tag
+                string dllFileName;
+                string pdbFileName;
+                switch (moduleTag)
+                {
+                    case "family_sync":
+                        dllFileName = "FamilySync.Module.dll";
+                        pdbFileName = "FamilySync.Module.pdb";
+                        break;
+                    case "dwg2rvt":
+                        dllFileName = "dwg2rvt.Module.dll";
+                        pdbFileName = "dwg2rvt.Module.pdb";
+                        break;
+                    case "hvac":
+                        dllFileName = "HVAC.Module.dll";
+                        pdbFileName = "HVAC.Module.pdb";
+                        break;
+                    case "autonumbering":
+                        dllFileName = "AutoNumbering.Module.dll";
+                        pdbFileName = "AutoNumbering.Module.pdb";
+                        break;
+                    default:
+                        dllFileName = $"{moduleTag}.Module.dll";
+                        pdbFileName = $"{moduleTag}.Module.pdb";
+                        break;
+                }
+                
                 var dllPath = Path.Combine(moduleFolderPath, dllFileName);
                 
                 if (!await DownloadFile(moduleInfo.DllDownloadUrl, dllPath, progress))
@@ -72,7 +98,6 @@ namespace PluginsManager.Core
                 // 3. Download PDB file (optional, for debugging)
                 if (!string.IsNullOrEmpty(moduleInfo.PdbDownloadUrl))
                 {
-                    var pdbFileName = $"{moduleTag}.Module.pdb";
                     var pdbPath = Path.Combine(moduleFolderPath, pdbFileName);
                     
                     if (await DownloadFile(moduleInfo.PdbDownloadUrl, pdbPath, progress))
@@ -175,9 +200,35 @@ namespace PluginsManager.Core
         public bool IsModuleInstalled(string moduleTag)
         {
             var moduleFolderPath = Path.Combine(_annotatixDependenciesPath, moduleTag.ToLower());
-            var dllPath = Path.Combine(moduleFolderPath, $"{moduleTag.ToLower()}.Module.dll");
             
-            return File.Exists(dllPath);
+            // Get correct DLL name based on module tag
+            string dllFileName;
+            switch (moduleTag.ToLower())
+            {
+                case "family_sync":
+                    dllFileName = "FamilySync.Module.dll";
+                    break;
+                case "dwg2rvt":
+                    dllFileName = "dwg2rvt.Module.dll";
+                    break;
+                case "hvac":
+                    dllFileName = "HVAC.Module.dll";
+                    break;
+                case "autonumbering":
+                    dllFileName = "AutoNumbering.Module.dll";
+                    break;
+                default:
+                    // Fallback: assume module tag matches DLL name
+                    dllFileName = $"{moduleTag.ToLower()}.Module.dll";
+                    break;
+            }
+            
+            var dllPath = Path.Combine(moduleFolderPath, dllFileName);
+            bool exists = File.Exists(dllPath);
+            
+            DebugLogger.Log($"[MODULE-DOWNLOADER] Checking if {moduleTag} is installed: {exists} (path: {dllPath})");
+            
+            return exists;
         }
         
         /// <summary>

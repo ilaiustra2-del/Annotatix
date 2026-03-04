@@ -374,11 +374,35 @@ namespace PluginsManager.Core
                 if (!module.IsActive)
                     continue;
                 
-                // Use original module tag for file names (preserve case)
-                // dwg2rvt -> dwg2rvt (lowercase)
-                // HVAC -> HVAC (uppercase)
-                var moduleTag = module.ModuleTag; // Keep original case!
-                var folderName = moduleTag.ToLower(); // Folder name is lowercase
+                var moduleTag = module.ModuleTag.ToLower(); // Lowercase for folder name
+                
+                // Determine correct DLL/PDB file names based on module tag
+                string dllFileName;
+                string pdbFileName;
+                switch (moduleTag)
+                {
+                    case "family_sync":
+                        dllFileName = "FamilySync.Module.dll";
+                        pdbFileName = "FamilySync.Module.pdb";
+                        break;
+                    case "dwg2rvt":
+                        dllFileName = "dwg2rvt.Module.dll";
+                        pdbFileName = "dwg2rvt.Module.pdb";
+                        break;
+                    case "hvac":
+                        dllFileName = "HVAC.Module.dll";
+                        pdbFileName = "HVAC.Module.pdb";
+                        break;
+                    case "autonumbering":
+                        dllFileName = "AutoNumbering.Module.dll";
+                        pdbFileName = "AutoNumbering.Module.pdb";
+                        break;
+                    default:
+                        // Fallback: use module tag as-is
+                        dllFileName = $"{module.ModuleTag}.Module.dll";
+                        pdbFileName = $"{module.ModuleTag}.Module.pdb";
+                        break;
+                }
                 
                 // Supabase Storage public URLs
                 // Format: https://{SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}
@@ -386,9 +410,9 @@ namespace PluginsManager.Core
                 
                 moduleFiles.Add(new ModuleFileInfo
                 {
-                    ModuleTag = folderName, // For local folder creation
-                    DllDownloadUrl = $"{baseUrl}/{folderName}/{moduleTag}.Module.dll",
-                    PdbDownloadUrl = $"{baseUrl}/{folderName}/{moduleTag}.Module.pdb",
+                    ModuleTag = moduleTag, // For local folder creation (lowercase)
+                    DllDownloadUrl = $"{baseUrl}/{moduleTag}/{dllFileName}",
+                    PdbDownloadUrl = $"{baseUrl}/{moduleTag}/{pdbFileName}",
                     Version = "1.0.0",
                     FileSize = 0
                 });

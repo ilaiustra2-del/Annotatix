@@ -19,28 +19,23 @@ namespace PluginsManager.UI
         private ExternalEvent _openHvacPanelEvent;
         private Commands.OpenHvacPanelHandler _openHvacPanelHandler;
         
-        // FamilySync ExternalEvent
+        // FamilySync ExternalEvent will be created when module is loaded
         private ExternalEvent _familySyncEvent;
-        private object _familySyncHandler; // Will be FamilySync.Module.UI.FamilySyncHandler
+        private object _familySyncHandler;
+        
+        // AutoNumbering ExternalEvent for numbering (created in constructor)
+        private ExternalEvent _autoNumberingEvent;
+        private Commands.NumberRisersHandler _autoNumberingHandler;
+        
+        // Cache for module panels to avoid recreating them
+        private object _familySyncPanelContent;
+        private object _autoNumberingPanelContent;
 
-        public MainHubPanel(UIApplication uiApp, object familySyncHandler = null, ExternalEvent familySyncEvent = null)
+        public MainHubPanel(UIApplication uiApp)
         {
             InitializeComponent();
             _uiApp = uiApp;
             _hubContent = MainContent.Content;
-            
-            // Store provided FamilySync ExternalEvent (created in OpenHubCommand)
-            _familySyncHandler = familySyncHandler;
-            _familySyncEvent = familySyncEvent;
-            
-            if (_familySyncEvent != null)
-            {
-                System.Diagnostics.Debug.WriteLine("[HUB] Received FamilySync ExternalEvent from command");
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine("[HUB] No FamilySync ExternalEvent provided");
-            }
             
             // Create ExternalEvent for opening dwg2rvt panel
             // This is created in the constructor which is called from IExternalCommand.Execute()
@@ -52,6 +47,12 @@ namespace PluginsManager.UI
             _openHvacPanelHandler = new Commands.OpenHvacPanelHandler();
             _openHvacPanelHandler.SetUIApplication(uiApp);
             _openHvacPanelEvent = ExternalEvent.Create(_openHvacPanelHandler);
+            
+            // Create ExternalEvent for AutoNumbering numbering
+            // Created HERE (in constructor from IExternalCommand context) to avoid API context errors
+            _autoNumberingHandler = new Commands.NumberRisersHandler();
+            _autoNumberingEvent = ExternalEvent.Create(_autoNumberingHandler);
+            System.Diagnostics.Debug.WriteLine("[HUB] AutoNumbering ExternalEvent created in constructor");
             
             // Register this panel with the commands so they can update UI
             Commands.OpenDwg2rvtPanelCommand.SetHubPanel(this);
@@ -120,9 +121,9 @@ namespace PluginsManager.UI
                 txtStatusRight.Text = "Revit 2024 | Build v 3.0";
             }
             
-            // Load FamilySync module automatically (doesn't require authentication)
-            // Note: Module loading and ExternalEvent creation now happens in OpenHubCommand
-            // LoadFamilySyncModule(); // REMOVED - done in OpenHubCommand
+            // Load FamilySync module automatically REMOVED
+            // Note: Module loading now happens in ActivateModuleButtons after authentication
+            // LoadFamilySyncModule(); // REMOVED - FamilySync is now loaded dynamically like other modules
             
             // Try auto-authentication if saved credentials exist
             this.Loaded += async (s, e) => await TryAutoAuthenticateOnStartup();
@@ -185,13 +186,7 @@ namespace PluginsManager.UI
             }
         }
 
-        /// <summary>
-        /// Load FamilySync module automatically at startup
-        /// </summary>
-        private void Window_Close(object sender, RoutedEventArgs e)
-        {
-            this.Close();
-        }
+        // REMOVED: Window_Close - Close button removed from UI
         
         /// <summary>
         /// Load an icon from file to an Image control
@@ -263,81 +258,7 @@ namespace PluginsManager.UI
             MessageBox.Show(info, "Информация о модулях", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         
-        /// <summary>
-        /// Load FamilySync module automatically at startup
-        /// </summary>
-        private void LoadFamilySyncModule()
-        {
-            try
-            {
-                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-                var assemblyPath = Path.GetDirectoryName(assembly.Location);
-                
-                // FamilySync module is in family_sync folder (sibling to main)
-                var modulesPath = Path.GetDirectoryName(assemblyPath);
-                var familySyncDllPath = Path.Combine(modulesPath, "family_sync", "FamilySync.Module.dll");
-                
-                System.Diagnostics.Debug.WriteLine($"[HUB] Looking for FamilySync module at: {familySyncDllPath}");
-                
-                if (File.Exists(familySyncDllPath))
-                {
-                    if (Core.DynamicModuleLoader.LoadModule("family_sync", familySyncDllPath))
-                    {
-                        System.Diagnostics.Debug.WriteLine("[HUB] FamilySync module loaded successfully");
-                        
-                        // Enable and make FamilySync card fully visible
-                        pnlFamilySync.IsEnabled = true;
-                        pnlFamilySync.Opacity = 1.0;
-                        
-                        // Create FamilySync ExternalEvent AFTER module is loaded
-                        try
-                        {
-                            System.Diagnostics.Debug.WriteLine("[HUB] Attempting to create FamilySync ExternalEvent...");
-                            var familySyncHandlerType = Type.GetType("FamilySync.Module.UI.FamilySyncHandler, FamilySync.Module");
-                            
-                            if (familySyncHandlerType != null)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"[HUB] Found type: {familySyncHandlerType.FullName}");
-                                _familySyncHandler = Activator.CreateInstance(familySyncHandlerType);
-                                System.Diagnostics.Debug.WriteLine($"[HUB] Created handler instance");
-                                
-                                var iExternalEventHandler = _familySyncHandler as IExternalEventHandler;
-                                if (iExternalEventHandler != null)
-                                {
-                                    _familySyncEvent = ExternalEvent.Create(iExternalEventHandler);
-                                    System.Diagnostics.Debug.WriteLine("[HUB] FamilySync ExternalEvent created successfully");
-                                }
-                                else
-                                {
-                                    System.Diagnostics.Debug.WriteLine("[HUB] Handler does not implement IExternalEventHandler");
-                                }
-                            }
-                            else
-                            {
-                                System.Diagnostics.Debug.WriteLine("[HUB] FamilySyncHandler type not found via reflection");
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[HUB] Failed to create FamilySync ExternalEvent: {ex.Message}");
-                            System.Diagnostics.Debug.WriteLine($"[HUB] Stack trace: {ex.StackTrace}");
-                        }
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine("[HUB] Failed to load FamilySync module");
-                    }
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"[HUB] FamilySync module not found at: {familySyncDllPath}");
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading FamilySync module: {ex.Message}");
-            }
-        }
+        // REMOVED: LoadFamilySyncModule() - now loaded dynamically after authentication
         
         private void Hvac_Click(object sender, MouseButtonEventArgs e)
         {
@@ -382,7 +303,27 @@ namespace PluginsManager.UI
                 Core.DebugLogger.Log("");
                 Core.DebugLogger.LogSeparator('-');
                 Core.DebugLogger.Log("[HUB] User clicked Family Sync button");
-                Core.DebugLogger.Log("[HUB] Loading Family Sync module panel...");
+                
+                // Check if panel already created (cached)
+                if (_familySyncPanelContent != null)
+                {
+                    Core.DebugLogger.Log("[HUB] Using cached Family Sync panel content");
+                    
+                    // Switch to cached FamilySync panel
+                    MainContent.Content = _familySyncPanelContent;
+                    // Hide sidebar and expand content to full width
+                    RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
+                    System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
+                    TitleBar.Visibility = System.Windows.Visibility.Visible;
+                    txtModuleTitle.Text = "Family Sync - Синхронизация параметров вложенных семейств";
+                    
+                    Core.DebugLogger.Log("[HUB] Family Sync panel switched (from cache)");
+                    Core.DebugLogger.LogSeparator('-');
+                    Core.DebugLogger.Log("");
+                    return;
+                }
+                
+                Core.DebugLogger.Log("[HUB] Loading Family Sync module panel (first time)...");
                 
                 // Get module instance
                 var module = Core.DynamicModuleLoader.GetModuleInstance("family_sync");
@@ -420,6 +361,10 @@ namespace PluginsManager.UI
                 }
                 
                 Core.DebugLogger.Log($"[HUB] Panel content type: {panelContent.GetType().Name}");
+                
+                // Cache the panel content for reuse
+                _familySyncPanelContent = panelContent;
+                Core.DebugLogger.Log("[HUB] Panel content cached for future use");
                 Core.DebugLogger.LogSeparator('-');
                 Core.DebugLogger.Log("");
                 
@@ -434,6 +379,88 @@ namespace PluginsManager.UI
             catch (Exception ex)
             {
                 MessageBox.Show($"Ошибка при загрузке панели Family Sync:\n{ex.Message}\n\n{ex.StackTrace}", 
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void AutoNumbering_Click(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                Core.DebugLogger.Log("");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("[HUB] User clicked AutoNumbering button");
+                
+                // Check if panel already created (cached)
+                if (_autoNumberingPanelContent != null)
+                {
+                    Core.DebugLogger.Log("[HUB] Using cached AutoNumbering panel content");
+                    
+                    // Switch to cached AutoNumbering panel
+                    MainContent.Content = _autoNumberingPanelContent;
+                    RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
+                    System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
+                    TitleBar.Visibility = System.Windows.Visibility.Visible;
+                    txtModuleTitle.Text = "AutoNumbering - Автонумерация стояков";
+                    
+                    Core.DebugLogger.Log("[HUB] AutoNumbering panel switched (from cache)");
+                    Core.DebugLogger.LogSeparator('-');
+                    Core.DebugLogger.Log("");
+                    return;
+                }
+                
+                Core.DebugLogger.Log("[HUB] Loading AutoNumbering module panel (first time)...");
+                
+                // Get module instance
+                var module = Core.DynamicModuleLoader.GetModuleInstance("autonumbering");
+                if (module == null)
+                {
+                    MessageBox.Show("Модуль AutoNumbering не загружен. Проверьте наличие файла AutoNumbering.Module.dll.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log($"[HUB] Module found: {module.ModuleName} v{module.ModuleVersion}");
+                
+                // Pass UIApp AND pre-created ExternalEvent to panel
+                Core.DebugLogger.Log($"[HUB] Passing ExternalEvent to panel: Event={_autoNumberingEvent != null}, Handler={_autoNumberingHandler != null}");
+                var panel = module.CreatePanel(new object[] { _uiApp, _autoNumberingEvent, _autoNumberingHandler });
+                if (panel == null)
+                {
+                    MessageBox.Show("Не удалось создать панель модуля AutoNumbering.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log("[HUB] Panel created successfully");
+                
+                // Extract content from Window
+                var panelContent = panel.Content;
+                if (panelContent == null)
+                {
+                    MessageBox.Show("Панель модуля не содержит контента.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log($"[HUB] Panel content type: {panelContent.GetType().Name}");
+                
+                // Cache the panel content for reuse
+                _autoNumberingPanelContent = panelContent;
+                Core.DebugLogger.Log("[HUB] Panel content cached for future use");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("");
+                
+                // Switch to AutoNumbering panel
+                MainContent.Content = panelContent;
+                RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
+                System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
+                TitleBar.Visibility = System.Windows.Visibility.Visible;
+                txtModuleTitle.Text = "AutoNumbering - Автонумерация стояков";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при загрузке панели AutoNumbering:\n{ex.Message}\n\n{ex.StackTrace}", 
                     "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -841,10 +868,26 @@ namespace PluginsManager.UI
                             LoadAndActivateHVACModule(modulesPath);
                         break;
                         
+                    case "family_sync":
+                        if (!CheckModuleFilesExist(modulesPath, "family_sync", "FamilySync.Module.dll"))
+                            missingModules.Add("family_sync");
+                        else
+                            LoadAndActivateFamilySyncModule(modulesPath);
+                        break;
+                    
+                    case "autonumbering":
+                        if (!CheckModuleFilesExist(modulesPath, "autonumbering", "AutoNumbering.Module.dll"))
+                            missingModules.Add("autonumbering");
+                        else
+                            LoadAndActivateAutoNumberingModule(modulesPath);
+                        break;
+                        
                     case "full":
-                        // Check both modules
+                        // Check all three modules
                         bool dwg2rvtExists = CheckModuleFilesExist(modulesPath, "dwg2rvt", "dwg2rvt.Module.dll");
                         bool hvacExists = CheckModuleFilesExist(modulesPath, "hvac", "HVAC.Module.dll");
+                        bool familySyncExists = CheckModuleFilesExist(modulesPath, "family_sync", "FamilySync.Module.dll");
+                        bool autoNumberingExists = CheckModuleFilesExist(modulesPath, "autonumbering", "AutoNumbering.Module.dll");
                         
                         if (!dwg2rvtExists)
                             missingModules.Add("dwg2rvt");
@@ -856,7 +899,17 @@ namespace PluginsManager.UI
                         else
                             LoadAndActivateHVACModule(modulesPath);
                             
-                        if (dwg2rvtExists && hvacExists)
+                        if (!familySyncExists)
+                            missingModules.Add("family_sync");
+                        else
+                            LoadAndActivateFamilySyncModule(modulesPath);
+                        
+                        if (!autoNumberingExists)
+                            missingModules.Add("autonumbering");
+                        else
+                            LoadAndActivateAutoNumberingModule(modulesPath);
+                            
+                        if (dwg2rvtExists && hvacExists && familySyncExists && autoNumberingExists)
                             System.Diagnostics.Debug.WriteLine("[HUB] All modules activated (full access)");
                         break;
                         
@@ -889,14 +942,8 @@ namespace PluginsManager.UI
             Core.DebugLogger.Log("[HUB] ============================");
             Core.DebugLogger.Log("");
             
-            // Always activate FamilySync module (independent of user subscription)
-            System.Diagnostics.Debug.WriteLine("[HUB] Ensuring FamilySync is always activated...");
-            if (Core.DynamicModuleLoader.GetModuleInstance("family_sync") != null)
-            {
-                pnlFamilySync.IsEnabled = true;
-                pnlFamilySync.Opacity = 1.0;
-                System.Diagnostics.Debug.WriteLine("[HUB] FamilySync activated (always available)");
-            }
+            // FamilySync is now loaded dynamically based on user subscription (like other modules)
+            // REMOVED: Always activate FamilySync - it's now subscription-based
         }
         
         /// <summary>
@@ -975,6 +1022,109 @@ namespace PluginsManager.UI
             {
                 System.Diagnostics.Debug.WriteLine($"[HUB] Error loading HVAC module: {ex.Message}");
                 Core.DebugLogger.Log($"[HUB] ERROR: Failed to load HVAC module - {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// Load and activate FamilySync module
+        /// </summary>
+        private void LoadAndActivateFamilySyncModule(string modulesPath)
+        {
+            try
+            {
+                var moduleDllPath = Path.Combine(modulesPath, "family_sync", "FamilySync.Module.dll");
+                System.Diagnostics.Debug.WriteLine($"[HUB] Loading FamilySync module from: {moduleDllPath}");
+                
+                if (Core.DynamicModuleLoader.LoadModule("family_sync", moduleDllPath))
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] FamilySync module loaded successfully");
+                    
+                    // Create FamilySync ExternalEvent only if not already created
+                    if (_familySyncEvent == null)
+                    {
+                        try
+                        {
+                            System.Diagnostics.Debug.WriteLine("[HUB] Attempting to create FamilySync ExternalEvent...");
+                            var familySyncHandlerType = Type.GetType("FamilySync.Module.UI.FamilySyncHandler, FamilySync.Module");
+                            
+                            if (familySyncHandlerType != null)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[HUB] Found type: {familySyncHandlerType.FullName}");
+                                _familySyncHandler = Activator.CreateInstance(familySyncHandlerType);
+                                System.Diagnostics.Debug.WriteLine($"[HUB] Created handler instance");
+                                
+                                var iExternalEventHandler = _familySyncHandler as IExternalEventHandler;
+                                if (iExternalEventHandler != null)
+                                {
+                                    _familySyncEvent = ExternalEvent.Create(iExternalEventHandler);
+                                    System.Diagnostics.Debug.WriteLine("[HUB] FamilySync ExternalEvent created successfully");
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Debug.WriteLine("[HUB] Handler does not implement IExternalEventHandler");
+                                }
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine("[HUB] FamilySyncHandler type not found via reflection");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[HUB] Failed to create FamilySync ExternalEvent: {ex.Message}");
+                            System.Diagnostics.Debug.WriteLine($"[HUB] Stack trace: {ex.StackTrace}");
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("[HUB] FamilySync ExternalEvent already exists, skipping creation");
+                    }
+                    
+                    // Enable and make FamilySync card visible
+                    pnlFamilySync.IsEnabled = true;
+                    pnlFamilySync.Opacity = 1.0;
+                    System.Diagnostics.Debug.WriteLine("[HUB] ✓ FamilySync module loaded and activated");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] ✗ Failed to load FamilySync module");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading FamilySync module: {ex.Message}");
+                Core.DebugLogger.Log($"[HUB] ERROR: Failed to load FamilySync module - {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// Load and activate AutoNumbering module
+        /// </summary>
+        private void LoadAndActivateAutoNumberingModule(string modulesPath)
+        {
+            try
+            {
+                var moduleDllPath = Path.Combine(modulesPath, "autonumbering", "AutoNumbering.Module.dll");
+                System.Diagnostics.Debug.WriteLine($"[HUB] Loading AutoNumbering module from: {moduleDllPath}");
+                
+                if (Core.DynamicModuleLoader.LoadModule("autonumbering", moduleDllPath))
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] AutoNumbering module loaded successfully");
+                    
+                    // Enable and make AutoNumbering card visible
+                    pnlAutoNumbering.IsEnabled = true;
+                    pnlAutoNumbering.Opacity = 1.0;
+                    System.Diagnostics.Debug.WriteLine("[HUB] ✓ AutoNumbering module loaded and activated");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] ✗ Failed to load AutoNumbering module");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading AutoNumbering module: {ex.Message}");
+                Core.DebugLogger.Log($"[HUB] ERROR: Failed to load AutoNumbering module - {ex.Message}");
             }
         }
     }

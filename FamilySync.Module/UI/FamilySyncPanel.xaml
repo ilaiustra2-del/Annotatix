@@ -86,6 +86,8 @@
                 </ScrollViewer>
             </Border>
             
+            <!-- Buttons for batch "Общий" parameter change - REMOVED -->
+            
             <!-- Hidden element for backwards compatibility -->
             <TextBox x:Name="txtNestedFamilies" Visibility="Collapsed"/>
         </StackPanel>

@@ -68,9 +68,10 @@ $MainFolder = [System.IO.Path]::Combine($DependenciesFolder, "main")
 $Dwg2rvtFolder = [System.IO.Path]::Combine($DependenciesFolder, "dwg2rvt")
 $HvacFolder = [System.IO.Path]::Combine($DependenciesFolder, "hvac")
 $FamilySyncFolder = [System.IO.Path]::Combine($DependenciesFolder, "family_sync")
+$AutoNumberingFolder = [System.IO.Path]::Combine($DependenciesFolder, "autonumbering")
 $LogsFolder = [System.IO.Path]::Combine($DependenciesFolder, "logs")
 
-foreach ($folder in @($DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder, $FamilySyncFolder, $LogsFolder)) {
+foreach ($folder in @($DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder, $FamilySyncFolder, $AutoNumberingFolder, $LogsFolder)) {
     if (-not (Test-Path $folder)) {
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
         Write-Host "Created directory: $folder"
@@ -100,6 +101,11 @@ $HvacFiles = @(
 $FamilySyncFiles = @(
     "FamilySync.Module.dll",
     "FamilySync.Module.pdb"
+)
+
+$AutoNumberingFiles = @(
+    "AutoNumbering.Module.dll",
+    "AutoNumbering.Module.pdb"
 )
 
 # Copy MAIN module files
@@ -142,9 +148,19 @@ foreach ($file in $FamilySyncFiles) {
     }
 }
 
+# Copy AutoNumbering module files
+Write-Host "Copying AutoNumbering module..."
+foreach ($file in $AutoNumberingFiles) {
+    $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
+    if (Test-Path $sourcePath) {
+        Copy-Item -Path $sourcePath -Destination $AutoNumberingFolder -Force
+        Write-Host "  → autonumbering/$file"
+    }
+}
+
 # Copy shared dependencies to main folder (all modules will find them there)
 Write-Host "Copying shared dependencies to main/..."
-$ExcludePatterns = $MainFiles + $Dwg2rvtFiles + $HvacFiles + $FamilySyncFiles + @("dwg2rvt.dll", "dwg2rvt.pdb")  # Exclude old artifacts
+$ExcludePatterns = $MainFiles + $Dwg2rvtFiles + $HvacFiles + $FamilySyncFiles + $AutoNumberingFiles + @("dwg2rvt.dll", "dwg2rvt.pdb")  # Exclude old artifacts
 Get-ChildItem -Path $TargetDir -File | Where-Object {
     $fileName = $_.Name
     $ExcludePatterns -notcontains $fileName
@@ -175,9 +191,11 @@ if (Test-Path $SourceIcons) {
 $AddinFile = [System.IO.Path]::Combine($OutputDir, "Annotatix.addin")
 Write-Host "Creating .addin file..."
 
-# Build the Assembly path dynamically to avoid encoding issues
-$UserProfile = [Environment]::GetFolderPath('ApplicationData')
-$AssemblyPath = [System.IO.Path]::Combine($UserProfile, "Autodesk", "Revit", "Addins", "2024", "annotatix_dependencies", "main", "PluginsManager.dll")
+# Use RELATIVE path from .addin file location
+# .addin is in %APPDATA%\Autodesk\Revit\Addins\2024\
+# DLL is in %APPDATA%\Autodesk\Revit\Addins\2024\annotatix_dependencies\main\PluginsManager.dll
+# So relative path is: annotatix_dependencies\main\PluginsManager.dll
+$AssemblyPath = "annotatix_dependencies\main\PluginsManager.dll"
 
 # Create XML content
 $AddinContent = "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n"
@@ -195,7 +213,7 @@ $AddinContent += "</RevitAddIns>"
 # Save with UTF-8 encoding (with BOM for better compatibility)
 [System.IO.File]::WriteAllText($AddinFile, $AddinContent, [System.Text.Encoding]::UTF8)
 Write-Host "- Created Annotatix.addin"
-Write-Host "  Assembly path: $AssemblyPath"
+Write-Host "  Assembly path (relative): $AssemblyPath"
 
 # MANUAL DEPLOYMENT MODE - Files are NOT automatically copied to Revit
 # User will manually copy files from the output folder to Revit Addins
@@ -228,6 +246,7 @@ Write-Host "  + main/ (Core: PluginsManager.dll + ALL dependencies + UI + icons)
 Write-Host "  + dwg2rvt/ (Module: dwg2rvt.Module.dll ONLY)"
 Write-Host "  + hvac/ (Module: HVAC.Module.dll ONLY)"
 Write-Host "  + family_sync/ (Module: FamilySync.Module.dll ONLY)"
+Write-Host "  + autonumbering/ (Module: AutoNumbering.Module.dll ONLY)"
 Write-Host ""
 Write-Host "NOTE: All shared dependencies are in main/ for optimal loading"
 Write-Host "========================================"

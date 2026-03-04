@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
@@ -49,6 +51,13 @@ namespace FamilySync.Module.UI
         public bool CreateIfNotExists { get; set; }
         public bool CopyFromParent { get; set; }
         
+        // For batch "Set All Shared/NotShared" operations
+        public string Operation { get; set; } // "SetAllShared", "SetAllNotShared", "Sync", "OpenNestedFamilyEditor"
+        
+        // For opening nested family editor
+        public string TargetFamilyName { get; set; }
+        public string ParentFamilyName { get; set; }
+        
         public int SuccessCount { get; private set; }
         public int ErrorCount { get; private set; }
         public List<string> Errors { get; private set; } = new List<string>();
@@ -73,37 +82,53 @@ namespace FamilySync.Module.UI
 
             try
             {
-                int successCount = 0;
-                int errorCount = 0;
-                List<string> errors = new List<string>();
-                bool parameterCreated = false;
-                int totalNested = 0;
-                int sharedNested = 0;
-                int regularNested = 0;
-
-                // Execute for ALL selected family instances
-                Panel.ExecuteSynchronizationForAllInstances(
-                    ParameterName, 
-                    SyncValue, 
-                    CreateIfNotExists,
-                    CopyFromParent,
-                    out successCount, 
-                    out errorCount, 
-                    out errors, 
-                    out parameterCreated,
-                    out totalNested,
-                    out sharedNested,
-                    out regularNested
-                );
-
-                // Store results
-                SuccessCount = successCount;
-                ErrorCount = errorCount;
-                Errors = errors;
-                ParameterCreated = parameterCreated;
-                TotalNestedCount = totalNested;
-                SharedNestedCount = sharedNested;
-                RegularNestedCount = regularNested;
+                // Check operation type
+                // "OpenNestedFamilyEditor" operation removed - functionality no longer available
+                if (Operation == "SetAllShared" || Operation == "SetAllNotShared")
+                {
+                    // Batch update Shared parameter for all nested families
+                    bool setAsShared = (Operation == "SetAllShared");
+                    Panel.ExecuteSetAllSharedParameter(setAsShared, out int successCount, out int errorCount, out List<string> errors);
+                                
+                    SuccessCount = successCount;
+                    ErrorCount = errorCount;
+                    Errors = errors;
+                }
+                else
+                {
+                    // Original synchronization logic
+                    int successCount = 0;
+                    int errorCount = 0;
+                    List<string> errors = new List<string>();
+                    bool parameterCreated = false;
+                    int totalNested = 0;
+                    int sharedNested = 0;
+                    int regularNested = 0;
+            
+                    // Execute for ALL selected family instances
+                    Panel.ExecuteSynchronizationForAllInstances(
+                        ParameterName, 
+                        SyncValue, 
+                        CreateIfNotExists,
+                        CopyFromParent,
+                        out successCount, 
+                        out errorCount, 
+                        out errors, 
+                        out parameterCreated,
+                        out totalNested,
+                        out sharedNested,
+                        out regularNested
+                    );
+            
+                    // Store results
+                    SuccessCount = successCount;
+                    ErrorCount = errorCount;
+                    Errors = errors;
+                    ParameterCreated = parameterCreated;
+                    TotalNestedCount = totalNested;
+                    SharedNestedCount = sharedNested;
+                    RegularNestedCount = regularNested;
+                }
             }
             catch (Exception ex)
             {
@@ -142,6 +167,11 @@ namespace FamilySync.Module.UI
             public ElementId ElementId { get; set; }
             public List<NestedFamilyInfo> Children { get; set; } = new List<NestedFamilyInfo>();
             public bool IsMainFamily { get; set; }
+            public bool? IsShared { get; set; } // null = unknown, true = Shared (Да), false = Not Shared (Нет)
+            // Store family name for re-opening from project document
+            public string FamilyFileName { get; set; }
+            // Store parent family name for sequential opening (parent -> nested)
+            public string ParentFamilyName { get; set; }
         }
 
         public FamilySyncPanel(UIApplication uiApp, FamilySyncHandler syncHandler = null, ExternalEvent syncEvent = null)
@@ -391,7 +421,9 @@ namespace FamilySync.Module.UI
                     TypeName = typeName,
                     Category = categoryName,
                     ElementId = familyInstance.Id,
-                    IsMainFamily = true
+                    IsMainFamily = true,
+                    FamilyFileName = familyName,
+                    IsShared = null // Main family doesn't have "Shared" parameter
                 };
 
                 // Get nested families from family document
@@ -407,6 +439,8 @@ namespace FamilySync.Module.UI
                 // Update count
                 int totalNested = CountNestedFamilies(mainFamilyInfo) - 1; // Exclude main family
                 txtNestedCount.Text = $"(найдено: {totalNested})";
+                
+                // Batch "Shared" parameter buttons removed - functionality no longer available
 
                 txtStatus.Text = $"Проанализировано семейство: {familyName}\n" +
                                 $"Тип: {typeName}\n" +
@@ -456,6 +490,10 @@ namespace FamilySync.Module.UI
                             continue;
 
                         processedFamilies.Add(familyKey);
+                        
+                        // Check "Общий" parameter while document is still open
+                        // NOTE: "Общий" is a TYPE parameter, not instance parameter!
+                        bool? isShared = CheckIsSharedParameter(nestedInstance);
 
                         var nestedInfo = new NestedFamilyInfo
                         {
@@ -463,8 +501,13 @@ namespace FamilySync.Module.UI
                             TypeName = nestedInstance.Symbol.Name,
                             Category = nestedInstance.Category?.Name ?? "",
                             ElementId = nestedInstance.Id,
-                            IsMainFamily = false
+                            IsMainFamily = false,
+                            FamilyFileName = nestedFamily.Name, // Store family name for re-opening
+                            ParentFamilyName = family.Name, // Store parent for sequential opening
+                            IsShared = isShared
                         };
+                        
+                        PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Nested family '{nestedInfo.FamilyName}' (Type: '{nestedInfo.TypeName}') Parent: '{family.Name}' IsShared: {isShared}");
 
                         // Recursively get nested families (limited depth to avoid infinite loops)
                         // Note: Deep recursion may cause performance issues
@@ -482,9 +525,78 @@ namespace FamilySync.Module.UI
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[FAMILY-SYNC] GetNestedFamilies error: {ex.Message}");
+                PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] GetNestedFamilies error: {ex.Message}");
             }
 
             return nestedFamilies;
+        }
+        
+        /// <summary>
+        /// Check if family has "Общий" (Shared) parameter set to "Да" (Yes)
+        /// Returns: true = Shared (Да), false = Not Shared (Нет), null = parameter not found
+        /// NOTE: "Общий" is a built-in parameter FAMILY_SHARED in Revit!
+        /// </summary>
+        private bool? CheckIsSharedParameter(FamilyInstance instance)
+        {
+            try
+            {
+                // Get FamilySymbol (type) from instance
+                FamilySymbol symbol = instance.Symbol;
+                if (symbol == null)
+                {
+                    PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] CheckIsSharedParameter: Symbol is null for {instance.Name}");
+                    return null;
+                }
+                
+                // Get Family
+                Family family = symbol.Family;
+                if (family == null)
+                {
+                    PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] CheckIsSharedParameter: Family is null for {symbol.Name}");
+                    return null;
+                }
+                
+                // Check built-in parameter FAMILY_SHARED
+                Parameter sharedParam = family.get_Parameter(BuiltInParameter.FAMILY_SHARED);
+                
+                PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] CheckIsSharedParameter for Family '{family.Name}': FAMILY_SHARED parameter found = {sharedParam != null}");
+                
+                if (sharedParam == null)
+                {
+                    PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Built-in parameter FAMILY_SHARED not found");
+                    return null;
+                }
+                
+                PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Parameter 'FAMILY_SHARED' StorageType: {sharedParam.StorageType}, HasValue: {sharedParam.HasValue}");
+                
+                // Parameter found, check its value
+                // For Yes/No parameters, AsInteger() returns 1 for Yes, 0 for No
+                if (sharedParam.StorageType == StorageType.Integer)
+                {
+                    int value = sharedParam.AsInteger();
+                    PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Parameter 'FAMILY_SHARED' Integer value: {value}");
+                    return value == 1; // 1 = Да (Yes), 0 = Нет (No)
+                }
+                
+                // If parameter has different storage type, check string value
+                string strValue = sharedParam.AsValueString();
+                PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Parameter 'FAMILY_SHARED' String value: '{strValue}'");
+                
+                if (strValue != null)
+                {
+                    bool result = strValue.Contains("Да") || strValue.Contains("Yes") || strValue.Contains("да");
+                    PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Parameter 'FAMILY_SHARED' parsed result: {result}");
+                    return result;
+                }
+                
+                PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Parameter 'FAMILY_SHARED' has no readable value");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] CheckIsSharedParameter error: {ex.Message}");
+                return null;
+            }
         }
 
         private List<NestedFamilyInfo> FlattenNestedFamilies(List<NestedFamilyInfo> families)
@@ -525,7 +637,8 @@ namespace FamilySync.Module.UI
         {
             var item = new TreeViewItem
             {
-                IsExpanded = true
+                IsExpanded = true,
+                Tag = familyInfo
             };
 
             // Create header with icon and text
@@ -564,9 +677,48 @@ namespace FamilySync.Module.UI
                 };
                 headerPanel.Children.Add(categoryText);
             }
+            
+            // Add "Shared" status indicator for nested families
+            if (!isRoot)
+            {
+                string statusText;
+                System.Windows.Media.Color statusColor;
+                
+                if (familyInfo.IsShared.HasValue)
+                {
+                    if (familyInfo.IsShared.Value)
+                    {
+                        // Shared family - green checkmark (no box)
+                        statusText = " [общий ✓]";
+                        statusColor = System.Windows.Media.Color.FromRgb(40, 167, 69); // Green
+                    }
+                    else
+                    {
+                        // Not shared - red X (heavier cross)
+                        statusText = " [не общий ✖]";
+                        statusColor = System.Windows.Media.Color.FromRgb(220, 53, 69); // Red
+                    }
+                }
+                else
+                {
+                    // Parameter not found or not set - gray question mark
+                    statusText = " [параметр не найден ?]";
+                    statusColor = System.Windows.Media.Color.FromRgb(128, 128, 128); // Gray
+                }
+                
+                var sharedStatusText = new TextBlock
+                {
+                    Text = statusText,
+                    Foreground = new System.Windows.Media.SolidColorBrush(statusColor),
+                    FontSize = 10, // Match category text size for consistency
+                    FontWeight = FontWeights.SemiBold,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(5, 0, 0, 0)
+                };
+                headerPanel.Children.Add(sharedStatusText);
+            }
 
             item.Header = headerPanel;
-            item.Tag = familyInfo;
 
             // Add children
             foreach (var child in familyInfo.Children)
@@ -1331,6 +1483,260 @@ namespace FamilySync.Module.UI
                     "Справка", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
+        
+        
+        // REMOVED: BtnSetAllShared_Click, BtnSetAllNotShared_Click, TreeNestedFamilies_MouseDoubleClick
+        // REMOVED: OpenNestedFamilyEditor, OpenNestedFamilyEditorViaCommand, RaiseSetAllSharedEvent
+        // These functions are no longer needed
+        
+        /// <summary>
+        /// Execute "Set All Shared/NotShared" operation (called from ExternalEvent handler)
+        /// </summary>
+        public void ExecuteSetAllSharedParameter(bool setAsShared, out int successCount, out int errorCount, out List<string> errors)
+        {
+            successCount = 0;
+            errorCount = 0;
+            errors = new List<string>();
+            
+            try
+            {
+                var mainFamily = _analyzedFamilies.FirstOrDefault(f => f.IsMainFamily);
+                if (mainFamily == null || mainFamily.Children.Count == 0)
+                    return;
+                
+                // Process each nested family
+                foreach (var nestedFamilyInfo in mainFamily.Children)
+                {
+                    try
+                    {
+                        bool success = UpdateFamilySharedParameter(
+                            nestedFamilyInfo.FamilyName, 
+                            nestedFamilyInfo.ParentFamilyName, 
+                            setAsShared);
+                        
+                        if (success)
+                        {
+                            successCount++;
+                            PluginsManager.Core.DebugLogger.Log(
+                                $"[FAMILY-SYNC] Successfully set 'Shared'={setAsShared} for {nestedFamilyInfo.FamilyName}");
+                        }
+                        else
+                        {
+                            errorCount++;
+                            errors.Add(nestedFamilyInfo.FamilyName);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errorCount++;
+                        errors.Add($"{nestedFamilyInfo.FamilyName}: {ex.Message}");
+                        PluginsManager.Core.DebugLogger.Log(
+                            $"[FAMILY-SYNC] Error processing {nestedFamilyInfo.FamilyName}: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] ExecuteSetAllSharedParameter error: {ex.Message}\n{ex.StackTrace}");
+                errors.Add($"Критическая ошибка: {ex.Message}");
+                errorCount++;
+            }
+        }
+        
+        /// <summary>
+        /// Update "Shared" parameter for a specific family (handles nested families)
+        /// For nested families, the parameter must be changed in the parent family context
+        /// </summary>
+        /// <param name="familyName">Name of the family to update</param>
+        /// <param name="parentFamilyName">Parent family name (if nested)</param>
+        /// <param name="setAsShared">true = set "Да", false = set "Нет"</param>
+        /// <returns>true if successful</returns>
+        private bool UpdateFamilySharedParameter(string familyName, string parentFamilyName, bool setAsShared)
+        {
+            try
+            {
+                // Step 1: If nested family, try direct modification in project
+                if (!string.IsNullOrEmpty(parentFamilyName))
+                {
+                    PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Nested family '{familyName}', attempting DIRECT modification in project (no EditFamily)...");
+                    
+                    // Find nested family DIRECTLY in project (it should be loaded!)
+                    Family nestedFamily = null;
+                    FilteredElementCollector nestedCollector = new FilteredElementCollector(_doc)
+                        .OfClass(typeof(Family));
+                    
+                    foreach (Family fam in nestedCollector)
+                    {
+                        if (fam.Name == familyName)
+                        {
+                            nestedFamily = fam;
+                            break;
+                        }
+                    }
+                    
+                    if (nestedFamily == null)
+                    {
+                        PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Nested family '{familyName}' not found in project");
+                        return false;
+                    }
+                    
+                    PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Found nested family '{familyName}' in project");
+                    
+                    // Get parameter
+                    Parameter sharedParam = nestedFamily.get_Parameter(BuiltInParameter.FAMILY_SHARED);
+                    
+                    if (sharedParam == null)
+                    {
+                        PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] 'Shared' parameter not found for nested family '{familyName}'");
+                        return false;
+                    }
+                    
+                    if (sharedParam.IsReadOnly)
+                    {
+                        PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] 'Shared' parameter is read-only for nested family '{familyName}'");
+                        return false;
+                    }
+                    
+                    // Get current value
+                    int currentValue = sharedParam.HasValue ? sharedParam.AsInteger() : 0;
+                    int newValue = setAsShared ? 1 : 0;
+                    
+                    PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Nested '{familyName}': Current 'Shared' = {currentValue}, Setting to = {newValue}");
+                    
+                    // Try to set parameter in Transaction
+                    using (Transaction trans = new Transaction(_doc, "Update Nested Family Shared"))
+                    {
+                        trans.Start();
+                        
+                        try
+                        {
+                            sharedParam.Set(newValue);
+                            PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Parameter Set() called");
+                            
+                            trans.Commit();
+                            PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Transaction committed");
+                            PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Successfully updated nested family '{familyName}': Shared={setAsShared}");
+                            return true;
+                        }
+                        catch (Exception transEx)
+                        {
+                            PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Error in transaction: {transEx.Message}");
+                            trans.RollBack();
+                            throw;
+                        }
+                    }
+                }
+                else
+                {
+                    // Direct family (not nested) - work in its own document
+                    PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Direct family '{familyName}', opening from project...");
+                    
+                    Family targetFamily = null;
+                    FilteredElementCollector familyCollector = new FilteredElementCollector(_doc)
+                        .OfClass(typeof(Family));
+                    
+                    foreach (Family fam in familyCollector)
+                    {
+                        if (fam.Name == familyName)
+                        {
+                            targetFamily = fam;
+                            break;
+                        }
+                    }
+                    
+                    if (targetFamily == null)
+                    {
+                        PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Family '{familyName}' not found in project");
+                        return false;
+                    }
+                    
+                    Document familyDoc = _doc.EditFamily(targetFamily);
+                    if (familyDoc == null)
+                    {
+                        PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Could not open family '{familyName}'");
+                        return false;
+                    }
+                    
+                    PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Family document opened: {familyDoc.Title}");
+                    
+                    try
+                    {
+                        // For direct families, use FamilyManager
+                        if (!familyDoc.IsFamilyDocument)
+                        {
+                            PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Document '{familyDoc.Title}' is not a family document");
+                            familyDoc.Close(false);
+                            return false;
+                        }
+                        
+                        FamilyManager famMgr = familyDoc.FamilyManager;
+                        if (famMgr == null)
+                        {
+                            PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] FamilyManager is null for '{familyName}'");
+                            familyDoc.Close(false);
+                            return false;
+                        }
+                        
+                        FamilyParameter sharedParam = famMgr.get_Parameter(BuiltInParameter.FAMILY_SHARED);
+                        
+                        if (sharedParam == null)
+                        {
+                            PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] 'Shared' parameter not found in FamilyManager for '{familyName}'");
+                            familyDoc.Close(false);
+                            return false;
+                        }
+                        
+                        if (sharedParam.IsReadOnly)
+                        {
+                            PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] 'Shared' parameter is read-only for '{familyName}'");
+                            familyDoc.Close(false);
+                            return false;
+                        }
+                        
+                        // Get current value
+                        Element familyElement = new FilteredElementCollector(familyDoc)
+                            .OfClass(typeof(Family))
+                            .FirstElement();
+                        
+                        int currentValue = 0;
+                        if (familyElement != null)
+                        {
+                            Parameter elemParam = familyElement.get_Parameter(BuiltInParameter.FAMILY_SHARED);
+                            if (elemParam != null && elemParam.HasValue)
+                            {
+                                currentValue = elemParam.AsInteger();
+                            }
+                        }
+                        
+                        int newValue = setAsShared ? 1 : 0;
+                        
+                        PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Current 'Shared' value: {currentValue}, Setting to: {newValue}");
+                        
+                        // Set parameter directly (no transaction needed in EditFamily context)
+                        famMgr.Set(sharedParam, newValue);
+                        PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Parameter updated successfully");
+                        
+                        // Load family back to project (NO transaction needed for EditFamily-opened documents!)
+                        familyDoc.LoadFamily(_doc);
+                        familyDoc.Close(false);
+                        
+                        PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Successfully updated '{familyName}': Shared={setAsShared}");
+                        return true;
+                    }
+                    catch (Exception innerEx)
+                    {
+                        PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] Error updating direct family: {innerEx.Message}");
+                        familyDoc?.Close(false);
+                        throw;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                PluginsManager.Core.DebugLogger.Log($"[FAMILY-SYNC] UpdateFamilySharedParameter error for '{familyName}': {ex.Message}\n{ex.StackTrace}");
+                return false;
+            }
+        } // End method
 
     }
 }

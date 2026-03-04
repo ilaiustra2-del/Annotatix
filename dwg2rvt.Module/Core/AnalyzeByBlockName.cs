@@ -15,11 +15,15 @@ namespace dwg2rvt.Module.Core
     public class AnalyzeByBlockName
     {
         private readonly Document _doc;
-        private const string LOG_DIRECTORY = @"C:\Users\Свеж как огурец\Desktop\Эксперимент Annotatix\logs";
+        private readonly string _logDirectory;
     
         public AnalyzeByBlockName(Document doc)
         {
             _doc = doc;
+            
+            // Use dynamic path: %APPDATA%\Autodesk\Revit\Addins\2024\annotatix_dependencies\logs
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            _logDirectory = Path.Combine(appData, "Autodesk", "Revit", "Addins", "2024", "annotatix_dependencies", "logs");
         }
     
         private class ComponentInfo
@@ -390,7 +394,7 @@ namespace dwg2rvt.Module.Core
         {
             string timestamp = DateTime.Now.ToString("dd.MM.yy_HH-mm");
             string fileName = $"{timestamp}_NAME.txt";
-            string logPath = Path.Combine(LOG_DIRECTORY, fileName);
+            string logPath = Path.Combine(_logDirectory, fileName);
             string version = GetBuildVersion();
     
             StringBuilder sb = new StringBuilder();
@@ -437,7 +441,7 @@ namespace dwg2rvt.Module.Core
             sb.AppendLine("End of Report");
             sb.AppendLine("=======================================================");
     
-            if (!Directory.Exists(LOG_DIRECTORY)) Directory.CreateDirectory(LOG_DIRECTORY);
+            if (!Directory.Exists(_logDirectory)) Directory.CreateDirectory(_logDirectory);
             File.WriteAllText(logPath, sb.ToString(), new UTF8Encoding(true));
             return logPath;
         }
@@ -452,7 +456,10 @@ namespace dwg2rvt.Module.Core
         {
             try
             {
-                string buildNumberPath = @"C:\Users\Свеж как огурец\Desktop\Эксперимент Annotatix\dwg2rvt\BuildNumber.txt";
+                // Get BuildNumber.txt from the main folder where PluginsManager.dll is located
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string buildNumberPath = Path.Combine(appData, "Autodesk", "Revit", "Addins", "2024", "annotatix_dependencies", "main", "BuildNumber.txt");
+                
                 if (File.Exists(buildNumberPath))
                 {
                     return $"2.{File.ReadAllText(buildNumberPath).Trim()}";

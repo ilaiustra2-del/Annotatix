@@ -70,10 +70,7 @@
                                Text="" 
                                Style="{StaticResource WindowTitle}"/>
                 </StackPanel>
-                <Button Content="✕"
-                        Style="{StaticResource CloseButton}"
-                        HorizontalAlignment="Right"
-                        Click="Window_Close"/>
+                <!-- Close button removed - use Windows close button instead -->
             </Grid>
         </Border>
         
@@ -155,8 +152,26 @@
                                         </StackPanel>
                                     </Border>
                                     
-                                    <!-- Placeholder 1-6 -->
-                                    <Border Style="{StaticResource PluginCardDisabled}"/>
+                                    <!-- AutoNumbering Plugin -->
+                                    <Border x:Name="pnlAutoNumbering"
+                                            Style="{StaticResource PluginCardDisabled}"
+                                            MouseLeftButtonUp="AutoNumbering_Click">
+                                        <StackPanel>
+                                            <Image x:Name="imgAutoNumberingIcon"
+                                                   Width="64"
+                                                   Height="64"
+                                                   Margin="0,0,0,8"
+                                                   Stretch="Uniform"/>
+                                            <TextBlock Text="AutoNumbering"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       Foreground="#333333"/>
+                                        </StackPanel>
+                                    </Border>
+                                    
+                                    <!-- Placeholder 1-5 -->
                                     <Border Style="{StaticResource PluginCardDisabled}"/>
                                     <Border Style="{StaticResource PluginCardDisabled}"/>
                                     <Border Style="{StaticResource PluginCardDisabled}"/>

@@ -13,6 +13,7 @@
   <!-- This project depends on all other projects -->
   <ItemGroup>
     <ProjectReference Include="PluginsManager.csproj" />
+    <ProjectReference Include="FamilySync.Module.csproj" />
     <ProjectReference Include="dwg2rvt.Module.csproj" />
     <ProjectReference Include="HVAC.Module.csproj" />
   </ItemGroup>
