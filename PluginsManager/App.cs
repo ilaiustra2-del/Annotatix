@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Windows.Media.Imaging;
+using System.Xml.Linq;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.Attributes;
 
@@ -90,12 +91,126 @@ namespace PluginsManager
                     catch { }
                 }
 
+                // ── Clash Resolve ribbon panel ──────────────────────────────
+                try
+                {
+                    RibbonPanel panelClash = application.CreateRibbonPanel(tabName, "Clash Resolve");
+
+                    PushButtonData clashBtnData = new PushButtonData(
+                        "ClashResolveRibbon",
+                        "Исправление\nколлизий",
+                        assemblyPath,
+                        "PluginsManager.Commands.ClashResolveRibbonCommand"
+                    );
+                    clashBtnData.ToolTip =
+                        "Исправление коллизий труб.\n" +
+                        "Нажмите, затем последовательно выделяйте трубы с зажатой Ctrl.\n" +
+                        "Горячие клавиши: CR (EN) / СК (RU) — настраиваются в \"Управление → Сочетания клавиш\".";
+
+                    PushButton clashBtn = panelClash.AddItem(clashBtnData) as PushButton;
+
+                    // Try to use the same icon as the hub button
+                    if (bestIconPath != null)
+                    {
+                        try { clashBtn.LargeImage = new BitmapImage(new Uri(bestIconPath)); } catch { }
+                    }
+
+                    Core.DebugLogger.Log("[APP] Clash Resolve ribbon panel created");
+                }
+                catch (Exception ex)
+                {
+                    Core.DebugLogger.Log($"[APP] WARNING: Could not create Clash Resolve panel: {ex.Message}");
+                }
+
+                // ── Inject keyboard shortcuts (CR / СК) if absent ──────────
+                try
+                {
+                    InjectKeyboardShortcuts();
+                }
+                catch (Exception ex)
+                {
+                    Core.DebugLogger.Log($"[APP] WARNING: Could not inject keyboard shortcuts: {ex.Message}");
+                }
+
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
                 TaskDialog.Show("Error", $"Failed to initialize Plugins Manager: {ex.Message}");
                 return Result.Failed;
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // Keyboard shortcut injection
+        // ----------------------------------------------------------------
+        private static void InjectKeyboardShortcuts()
+        {
+            // Revit stores user shortcuts in:
+            // %APPDATA%\Autodesk\Revit\Autodesk Revit XXXX\KeyboardShortcuts.xml
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string[] revitDirs = Directory.GetDirectories(
+                Path.Combine(appData, "Autodesk", "Revit"), "Autodesk Revit *");
+
+            foreach (string revitDir in revitDirs)
+            {
+                string shortcutFile = Path.Combine(revitDir, "KeyboardShortcuts.xml");
+                TryAddShortcuts(shortcutFile);
+            }
+        }
+
+        private static void TryAddShortcuts(string filePath)
+        {
+            const string commandId = "CustomCtrl_%CustomCtrl_%Annotatix%Clash Resolve%ClashResolveRibbon";
+            const string shortcutEN = "CR";
+            const string shortcutRU = "\u0421\u041a"; // СК
+
+            XDocument doc;
+            XElement root;
+
+            if (File.Exists(filePath))
+            {
+                try { doc = XDocument.Load(filePath); }
+                catch { return; } // malformed XML — skip
+                root = doc.Root;
+            }
+            else
+            {
+                // Create minimal file
+                doc = new XDocument(
+                    new XDeclaration("1.0", "utf-8", "yes"),
+                    new XElement("Shortcuts"));
+                root = doc.Root;
+            }
+
+            if (root == null) return;
+
+            // Check if already present
+            bool hasEN = root.Descendants("ShortcutItem")
+                .Any(e => (string)e.Attribute("CommandId") == commandId
+                       && (string)e.Attribute("Shortcuts") != null
+                       && ((string)e.Attribute("Shortcuts")).Contains(shortcutEN));
+
+            if (hasEN)
+            {
+                Core.DebugLogger.Log($"[APP] Keyboard shortcuts already present in {filePath}");
+                return;
+            }
+
+            // Add entry
+            var shortcutsAttr = $"{shortcutEN}#{shortcutRU}";
+            root.Add(new XElement("ShortcutItem",
+                new XAttribute("CommandId", commandId),
+                new XAttribute("Shortcuts", shortcutsAttr)));
+
+            try
+            {
+                doc.Save(filePath);
+                Core.DebugLogger.Log($"[APP] Keyboard shortcuts (CR/СК) added to {filePath}");
+            }
+            catch (Exception ex)
+            {
+                Core.DebugLogger.Log($"[APP] Could not save shortcuts file: {ex.Message}");
             }
         }
 

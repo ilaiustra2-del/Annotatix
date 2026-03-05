@@ -69,9 +69,10 @@ $Dwg2rvtFolder = [System.IO.Path]::Combine($DependenciesFolder, "dwg2rvt")
 $HvacFolder = [System.IO.Path]::Combine($DependenciesFolder, "hvac")
 $FamilySyncFolder = [System.IO.Path]::Combine($DependenciesFolder, "family_sync")
 $AutoNumberingFolder = [System.IO.Path]::Combine($DependenciesFolder, "autonumbering")
+$ClashResolveFolder = [System.IO.Path]::Combine($DependenciesFolder, "clash_resolve")
 $LogsFolder = [System.IO.Path]::Combine($DependenciesFolder, "logs")
 
-foreach ($folder in @($DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder, $FamilySyncFolder, $AutoNumberingFolder, $LogsFolder)) {
+foreach ($folder in @($DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder, $FamilySyncFolder, $AutoNumberingFolder, $ClashResolveFolder, $LogsFolder)) {
     if (-not (Test-Path $folder)) {
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
         Write-Host "Created directory: $folder"
@@ -106,6 +107,11 @@ $FamilySyncFiles = @(
 $AutoNumberingFiles = @(
     "AutoNumbering.Module.dll",
     "AutoNumbering.Module.pdb"
+)
+
+$ClashResolveFiles = @(
+    "ClashResolve.Module.dll",
+    "ClashResolve.Module.pdb"
 )
 
 # Copy MAIN module files
@@ -158,9 +164,19 @@ foreach ($file in $AutoNumberingFiles) {
     }
 }
 
+# Copy ClashResolve module files
+Write-Host "Copying ClashResolve module..."
+foreach ($file in $ClashResolveFiles) {
+    $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
+    if (Test-Path $sourcePath) {
+        Copy-Item -Path $sourcePath -Destination $ClashResolveFolder -Force
+        Write-Host "  → clash_resolve/$file"
+    }
+}
+
 # Copy shared dependencies to main folder (all modules will find them there)
 Write-Host "Copying shared dependencies to main/..."
-$ExcludePatterns = $MainFiles + $Dwg2rvtFiles + $HvacFiles + $FamilySyncFiles + $AutoNumberingFiles + @("dwg2rvt.dll", "dwg2rvt.pdb")  # Exclude old artifacts
+$ExcludePatterns = $MainFiles + $Dwg2rvtFiles + $HvacFiles + $FamilySyncFiles + $AutoNumberingFiles + $ClashResolveFiles + @("dwg2rvt.dll", "dwg2rvt.pdb")  # Exclude old artifacts
 Get-ChildItem -Path $TargetDir -File | Where-Object {
     $fileName = $_.Name
     $ExcludePatterns -notcontains $fileName

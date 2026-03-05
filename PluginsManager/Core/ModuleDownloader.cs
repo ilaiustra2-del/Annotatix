@@ -79,6 +79,10 @@ namespace PluginsManager.Core
                         dllFileName = "AutoNumbering.Module.dll";
                         pdbFileName = "AutoNumbering.Module.pdb";
                         break;
+                    case "clash_resolve":
+                        dllFileName = "ClashResolve.Module.dll";
+                        pdbFileName = "ClashResolve.Module.pdb";
+                        break;
                     default:
                         dllFileName = $"{moduleTag}.Module.dll";
                         pdbFileName = $"{moduleTag}.Module.pdb";
@@ -216,6 +220,9 @@ namespace PluginsManager.Core
                     break;
                 case "autonumbering":
                     dllFileName = "AutoNumbering.Module.dll";
+                    break;
+                case "clash_resolve":
+                    dllFileName = "ClashResolve.Module.dll";
                     break;
                 default:
                     // Fallback: assume module tag matches DLL name

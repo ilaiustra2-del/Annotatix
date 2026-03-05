@@ -27,9 +27,18 @@ namespace PluginsManager.UI
         private ExternalEvent _autoNumberingEvent;
         private Commands.NumberRisersHandler _autoNumberingHandler;
         
+        // ClashResolve ExternalEvents (created in constructor from IExternalCommand context)
+        private ExternalEvent _clashResolveExecEvent;
+        private Commands.ClashResolveExecuteHandler _clashResolveExecHandler;
+        private ExternalEvent _clashResolvePickAEvent;
+        private Commands.ClashResolvePickAHandler _clashResolvePickAHandler;
+        private ExternalEvent _clashResolvePickBEvent;
+        private Commands.ClashResolvePickBHandler _clashResolvePickBHandler;
+        
         // Cache for module panels to avoid recreating them
         private object _familySyncPanelContent;
         private object _autoNumberingPanelContent;
+        private object _clashResolvePanelContent;
 
         public MainHubPanel(UIApplication uiApp)
         {
@@ -53,6 +62,16 @@ namespace PluginsManager.UI
             _autoNumberingHandler = new Commands.NumberRisersHandler();
             _autoNumberingEvent = ExternalEvent.Create(_autoNumberingHandler);
             System.Diagnostics.Debug.WriteLine("[HUB] AutoNumbering ExternalEvent created in constructor");
+            
+            // Create ExternalEvents for ClashResolve
+            // Created HERE (in constructor from IExternalCommand context) to avoid API context errors
+            _clashResolveExecHandler = new Commands.ClashResolveExecuteHandler();
+            _clashResolveExecEvent = ExternalEvent.Create(_clashResolveExecHandler);
+            _clashResolvePickAHandler = new Commands.ClashResolvePickAHandler();
+            _clashResolvePickAEvent = ExternalEvent.Create(_clashResolvePickAHandler);
+            _clashResolvePickBHandler = new Commands.ClashResolvePickBHandler();
+            _clashResolvePickBEvent = ExternalEvent.Create(_clashResolvePickBHandler);
+            System.Diagnostics.Debug.WriteLine("[HUB] ClashResolve ExternalEvents created in constructor");
             
             // Register this panel with the commands so they can update UI
             Commands.OpenDwg2rvtPanelCommand.SetHubPanel(this);
@@ -461,6 +480,84 @@ namespace PluginsManager.UI
             catch (Exception ex)
             {
                 MessageBox.Show($"Ошибка при загрузке панели AutoNumbering:\n{ex.Message}\n\n{ex.StackTrace}", 
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ClashResolve_Click(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                Core.DebugLogger.Log("");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("[HUB] User clicked ClashResolve button");
+                
+                // Check if panel already created (cached)
+                if (_clashResolvePanelContent != null)
+                {
+                    Core.DebugLogger.Log("[HUB] Using cached ClashResolve panel content");
+                    MainContent.Content = _clashResolvePanelContent;
+                    RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
+                    System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
+                    TitleBar.Visibility = System.Windows.Visibility.Visible;
+                    txtModuleTitle.Text = "Clash Resolve - Разрешение коллизий";
+                    Core.DebugLogger.Log("[HUB] ClashResolve panel switched (from cache)");
+                    Core.DebugLogger.LogSeparator('-');
+                    Core.DebugLogger.Log("");
+                    return;
+                }
+                
+                Core.DebugLogger.Log("[HUB] Loading ClashResolve module panel (first time)...");
+                
+                var module = Core.DynamicModuleLoader.GetModuleInstance("clash_resolve");
+                if (module == null)
+                {
+                    MessageBox.Show("Модуль ClashResolve не загружен. Проверьте наличие файла ClashResolve.Module.dll.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log($"[HUB] Module found: {module.ModuleName} v{module.ModuleVersion}");
+                
+                var panel = module.CreatePanel(new object[] {
+                    _uiApp,
+                    _clashResolveExecEvent, _clashResolveExecHandler,
+                    _clashResolvePickAEvent, _clashResolvePickAHandler,
+                    _clashResolvePickBEvent, _clashResolvePickBHandler
+                });
+                if (panel == null)
+                {
+                    MessageBox.Show("Не удалось создать панель модуля ClashResolve.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log("[HUB] Panel created successfully");
+                
+                var panelContent = panel.Content;
+                if (panelContent == null)
+                {
+                    MessageBox.Show("Панель модуля не содержит контента.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log($"[HUB] Panel content type: {panelContent.GetType().Name}");
+                
+                _clashResolvePanelContent = panelContent;
+                Core.DebugLogger.Log("[HUB] Panel content cached for future use");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("");
+                
+                MainContent.Content = panelContent;
+                RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
+                System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
+                TitleBar.Visibility = System.Windows.Visibility.Visible;
+                txtModuleTitle.Text = "Clash Resolve - Разрешение коллизий";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при загрузке панели ClashResolve:\n{ex.Message}\n\n{ex.StackTrace}",
                     "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -881,6 +978,13 @@ namespace PluginsManager.UI
                         else
                             LoadAndActivateAutoNumberingModule(modulesPath);
                         break;
+                    
+                    case "clash_resolve":
+                        if (!CheckModuleFilesExist(modulesPath, "clash_resolve", "ClashResolve.Module.dll"))
+                            missingModules.Add("clash_resolve");
+                        else
+                            LoadAndActivateClashResolveModule(modulesPath);
+                        break;
                         
                     case "full":
                         // Check all three modules
@@ -888,6 +992,7 @@ namespace PluginsManager.UI
                         bool hvacExists = CheckModuleFilesExist(modulesPath, "hvac", "HVAC.Module.dll");
                         bool familySyncExists = CheckModuleFilesExist(modulesPath, "family_sync", "FamilySync.Module.dll");
                         bool autoNumberingExists = CheckModuleFilesExist(modulesPath, "autonumbering", "AutoNumbering.Module.dll");
+                        bool clashResolveExists = CheckModuleFilesExist(modulesPath, "clash_resolve", "ClashResolve.Module.dll");
                         
                         if (!dwg2rvtExists)
                             missingModules.Add("dwg2rvt");
@@ -908,8 +1013,13 @@ namespace PluginsManager.UI
                             missingModules.Add("autonumbering");
                         else
                             LoadAndActivateAutoNumberingModule(modulesPath);
+                        
+                        if (!clashResolveExists)
+                            missingModules.Add("clash_resolve");
+                        else
+                            LoadAndActivateClashResolveModule(modulesPath);
                             
-                        if (dwg2rvtExists && hvacExists && familySyncExists && autoNumberingExists)
+                        if (dwg2rvtExists && hvacExists && familySyncExists && autoNumberingExists && clashResolveExists)
                             System.Diagnostics.Debug.WriteLine("[HUB] All modules activated (full access)");
                         break;
                         
@@ -1125,6 +1235,36 @@ namespace PluginsManager.UI
             {
                 System.Diagnostics.Debug.WriteLine($"[HUB] Error loading AutoNumbering module: {ex.Message}");
                 Core.DebugLogger.Log($"[HUB] ERROR: Failed to load AutoNumbering module - {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Load and activate ClashResolve module
+        /// </summary>
+        private void LoadAndActivateClashResolveModule(string modulesPath)
+        {
+            try
+            {
+                var moduleDllPath = Path.Combine(modulesPath, "clash_resolve", "ClashResolve.Module.dll");
+                System.Diagnostics.Debug.WriteLine($"[HUB] Loading ClashResolve module from: {moduleDllPath}");
+                
+                if (Core.DynamicModuleLoader.LoadModule("clash_resolve", moduleDllPath))
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] ClashResolve module loaded successfully");
+                    
+                    pnlClashResolve.IsEnabled = true;
+                    pnlClashResolve.Opacity = 1.0;
+                    System.Diagnostics.Debug.WriteLine("[HUB] ✓ ClashResolve module loaded and activated");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] ✗ Failed to load ClashResolve module");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading ClashResolve module: {ex.Message}");
+                Core.DebugLogger.Log($"[HUB] ERROR: Failed to load ClashResolve module - {ex.Message}");
             }
         }
     }
