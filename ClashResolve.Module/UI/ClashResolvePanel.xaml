@@ -155,7 +155,17 @@
                          Margin="0,0,12,0"
                          VerticalAlignment="Center"
                          Checked="RbAngle_Changed"/>
+            <RadioButton x:Name="rbAngle60" Content="60°"
+                         FontSize="12"
+                         Margin="0,0,12,0"
+                         VerticalAlignment="Center"
+                         Checked="RbAngle_Changed"/>
             <RadioButton x:Name="rbAngle45" Content="45°"
+                         FontSize="12"
+                         Margin="0,0,12,0"
+                         VerticalAlignment="Center"
+                         Checked="RbAngle_Changed"/>
+            <RadioButton x:Name="rbAngle30" Content="30°"
                          FontSize="12"
                          VerticalAlignment="Center"
                          Checked="RbAngle_Changed"/>

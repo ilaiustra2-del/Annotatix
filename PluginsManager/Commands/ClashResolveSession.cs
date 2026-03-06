@@ -695,11 +695,13 @@ namespace PluginsManager.Commands
 
             // Read params via reflection (paramsObj is from ClashResolve.Module assembly)
             var pt = paramsObj.GetType();
-            bool useAngle45    = (bool)pt.GetProperty("UseAngle45").GetValue(paramsObj);
+            bool useAngle45    = false; // legacy — not used
+            double angleDeg    = (double)pt.GetProperty("AngleDegrees").GetValue(paramsObj);
             double clearanceMm = (double)pt.GetProperty("ClearanceMm").GetValue(paramsObj);
             bool autoClear     = (bool)pt.GetProperty("AutoClearance").GetValue(paramsObj);
             double halfLength  = (double)pt.GetProperty("HalfLengthMm").GetValue(paramsObj);
             bool autoHalf      = (bool)pt.GetProperty("AutoHalfLength").GetValue(paramsObj);
+            bool bypassUp      = (bool)pt.GetProperty("BypassUp").GetValue(paramsObj);
 
             // Schedule execution via ExternalEvent
             _execHandler.PendingAction = (app) =>
@@ -726,7 +728,8 @@ namespace PluginsManager.Commands
                 pairType.GetProperty("HalfLengthMm").SetValue(pair, halfLength);
                 pairType.GetProperty("AutoClearance").SetValue(pair, autoClear);
                 pairType.GetProperty("AutoHalfLength").SetValue(pair, autoHalf);
-                pairType.GetProperty("UseAngle45").SetValue(pair, useAngle45);
+                pairType.GetProperty("AngleDegrees").SetValue(pair, angleDeg);
+                pairType.GetProperty("BypassUp").SetValue(pair, bypassUp);
 
                 var resolveMethod = resolverType.GetMethod("ResolveClash");
                 var result = resolveMethod.Invoke(resolver, new object[] { doc, pair });

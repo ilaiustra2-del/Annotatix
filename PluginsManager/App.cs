@@ -109,6 +109,23 @@ namespace PluginsManager
 
                     PushButton clashBtn = panelClash.AddItem(clashBtnData) as PushButton;
 
+                    // Second button: Batch / Multi clash resolve
+                    PushButtonData multiClashBtnData = new PushButtonData(
+                        "MultiClashResolveRibbon",
+                        "Множественное\nисправление\nколлизий",
+                        assemblyPath,
+                        "PluginsManager.Commands.MultiClashRibbonCommand"
+                    );
+                    multiClashBtnData.ToolTip =
+                        "Пакетное исправление коллизий труб.\n" +
+                        "Выберите трубы A (обходящие), затем трубы B (препятствия), \n" +
+                        "затем настройте параметры и нажмите Готово.";
+                    PushButton multiClashBtn = panelClash.AddItem(multiClashBtnData) as PushButton;
+                    if (bestIconPath != null)
+                    {
+                        try { multiClashBtn.LargeImage = new BitmapImage(new Uri(bestIconPath)); } catch { }
+                    }
+
                     // Try to use the same icon as the hub button
                     if (bestIconPath != null)
                     {

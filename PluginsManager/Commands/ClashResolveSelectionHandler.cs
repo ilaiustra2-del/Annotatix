@@ -32,7 +32,9 @@ namespace PluginsManager.Commands
         {
             try
             {
+                // Route to whichever session is currently active
                 ClashResolveSession.Current?.OnSelectionChanged(_uiApp);
+                MultiClashSession.Current?.OnSelectionChanged(_uiApp);
             }
             catch (Exception ex)
             {

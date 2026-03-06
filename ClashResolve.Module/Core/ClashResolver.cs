@@ -38,18 +38,51 @@ namespace ClashResolve.Module.Core
         public double HalfLengthMm { get; set; } = 300.0;
 
         /// <summary>
-        /// When true, use 45° diagonal transitions instead of 90° vertical ducts.
-        /// The split points are shifted inward by |dropZ| so the junction segments
-        /// run at exactly 45° to the horizontal axis.
+        /// Bypass angle in degrees: 90 (vertical, default), 45, 60, or 30.
+        /// Values other than 90 create a diagonal transition segment.
+        /// The split points are shifted outward by |dropZ| × tan(angle) so the
+        /// junction segments run at exactly the chosen angle to the horizontal.
         /// </summary>
-        public bool UseAngle45 { get; set; } = false;
+        public double AngleDegrees { get; set; } = 90.0;
 
         /// <summary>
         /// When true, HalfLengthMm is ignored and computed automatically:
         /// 90° mode: 2.5 × max(radiusA, radiusB)
-        /// 45° mode: 3.0 × max(radiusA, radiusB)
+        /// angled mode: 3.0 × max(radiusA, radiusB)
         /// </summary>
         public bool AutoHalfLength { get; set; } = false;
+
+        /// <summary>
+        /// When true, pipe A bypasses pipe B from above (A routes up over B).
+        /// When false (default), pipe A bypasses pipe B from below.
+        /// </summary>
+        public bool BypassUp { get; set; } = false;
+    }
+
+    /// <summary>
+    /// A single pipe A that must bypass multiple pipes B in one combined operation.
+    /// The resolver will find all intersections between A and every B,
+    /// take the two outermost intersection points as the bypass zone boundaries,
+    /// and drop the middle segment deep enough to clear ALL B pipes.
+    /// </summary>
+    public class ClashMultiPair
+    {
+        /// <summary>Pipe/duct that will be rerouted to bypass all pipes B.</summary>
+        public ElementId PipeAId { get; set; }
+
+        /// <summary>Pipes/ducts that remain untouched (the obstacles).</summary>
+        public List<ElementId> PipeBIds { get; set; } = new List<ElementId>();
+
+        public double ClearanceMm    { get; set; } = 50.0;
+        public bool   AutoClearance  { get; set; } = false;
+        public double HalfLengthMm   { get; set; } = 300.0;
+        public bool   AutoHalfLength { get; set; } = false;
+
+        /// <summary>Bypass angle in degrees: 90 (vertical), 45, 60, 30.</summary>
+        public double AngleDegrees   { get; set; } = 90.0;
+
+        /// <summary>When true, pipe A bypasses all B pipes from above.</summary>
+        public bool BypassUp { get; set; } = false;
     }
 
     /// <summary>Result of a clash resolve operation.</summary>
@@ -87,6 +120,42 @@ namespace ClashResolve.Module.Core
     {
         // 1 foot = 304.8 mm
         private const double FeetPerMm = 1.0 / 304.8;
+
+        /// <summary>MEP element kind used for choosing calculation multipliers.</summary>
+        private enum MepKind { RoundDuct, RectDuct, Pipe }
+
+        /// <summary>
+        /// Determine the kind of MEP element: round duct, rectangular duct, or pipe.
+        /// Rectangular ducts have both RBS_CURVE_WIDTH_PARAM and RBS_CURVE_HEIGHT_PARAM.
+        /// </summary>
+        private MepKind GetMepKind(Element elem)
+        {
+            if (elem is Pipe) return MepKind.Pipe;
+            if (elem is Duct duct)
+            {
+                Parameter w = duct.get_Parameter(BuiltInParameter.RBS_CURVE_WIDTH_PARAM);
+                Parameter h = duct.get_Parameter(BuiltInParameter.RBS_CURVE_HEIGHT_PARAM);
+                if (w != null && h != null && w.HasValue && h.HasValue)
+                    return MepKind.RectDuct;
+            }
+            return MepKind.RoundDuct;
+        }
+
+        /// <summary>
+        /// Returns the clearance multiplier applied to radiusA (= height/2) for rectangular
+        /// ducts at angled connections:
+        ///   30° → 1.0  (0.5 × height = 1.0 × radiusA)
+        ///   45° → 3.0  (1.5 × height = 3.0 × radiusA)
+        ///   60° → 5.0  (2.5 × height = 5.0 × radiusA)
+        ///   other → 3.0 (default / 45°-equivalent)
+        /// </summary>
+        private static double GetRectDuctAngledClearanceMult(double angleDegrees)
+        {
+            if (Math.Abs(angleDegrees - 30.0) < 0.5) return 1.0;
+            if (Math.Abs(angleDegrees - 45.0) < 0.5) return 3.0;
+            if (Math.Abs(angleDegrees - 60.0) < 0.5) return 5.0;
+            return 3.0; // fallback
+        }
 
         public ClashResolveResult ResolveClash(Document doc, ClashPair pair)
         {
@@ -130,6 +199,10 @@ namespace ClashResolve.Module.Core
                 DebugLogger.Log($"[CLASH-RESOLVER] PipeA: {pt1} -> {pt2}, radius={radiusA * 304.8:F1}mm");
                 DebugLogger.Log($"[CLASH-RESOLVER] PipeB: {pt3} -> {pt4}, radius={radiusB * 304.8:F1}mm");
 
+                // Determine element kind (round duct / rect duct / pipe) for multiplier selection
+                MepKind kindA = GetMepKind(elemA);
+                DebugLogger.Log($"[CLASH-RESOLVER] ElemA kind: {kindA}, radius={radiusA * 304.8:F1}mm");
+
                 // -------------------------------------------------------
                 // B. Find intersection point on axis of A (closest approach)
                 // -------------------------------------------------------
@@ -146,50 +219,87 @@ namespace ClashResolve.Module.Core
                 // splitPt1 = intersection - halfLength, splitPt2 = intersection + halfLength
                 double minSegmentFt = 0.15; // ~46 mm — safe margin from pipe endpoints for BreakCurve
 
-                // Auto half-length:
-                // 90°: 2.5 × max(R_A, R_B)
-                // 45°: 3.0 × max(R_A, R_B)
+                // Auto half-length multipliers depend on element kind and angle:
+                //   RoundDuct  90°: 2.5×   angled: 3.0×
+                //   Pipe       90°: 2.5×   angled: 3.0×  + 1 diameter bonus
+                //   RectDuct   90°: 6.0×   angled: 3.0×  (same as round; length reduced 2-2.5× per user feedback)
+                bool isAngled = Math.Abs(pair.AngleDegrees - 90.0) > 0.5;
+                double halfLengthMultiplier = isAngled ? 3.0 : 2.5;
+                if (kindA == MepKind.RectDuct && !isAngled)
+                    halfLengthMultiplier = 6.0;
+
                 double effectiveHalfLengthMm = pair.AutoHalfLength
-                    ? Math.Ceiling(Math.Max(radiusA, radiusB) * (pair.UseAngle45 ? 3.0 : 2.5) * 304.8)
+                    ? Math.Ceiling(Math.Max(radiusA, radiusB) * halfLengthMultiplier * 304.8)
                     : pair.HalfLengthMm;
+
+                // Pipe bonus: add 1 diameter of pipe A to half-length
+                if (kindA == MepKind.Pipe && pair.AutoHalfLength)
+                    effectiveHalfLengthMm += radiusA * 2.0 * 304.8;
+
                 if (pair.AutoHalfLength)
-                    DebugLogger.Log($"[CLASH-RESOLVER] AutoHalfLength ({(pair.UseAngle45 ? "45°" : "90°")}): → halfLength={effectiveHalfLengthMm:F0}mm");
+                    DebugLogger.Log($"[CLASH-RESOLVER] AutoHalfLength ({pair.AngleDegrees:F0}°, {kindA}): → halfLength={effectiveHalfLengthMm:F0}mm");
 
                 double splitOffset = effectiveHalfLengthMm * FeetPerMm; // convert mm → feet
                 result.UsedHalfLengthMm = effectiveHalfLengthMm;
 
                 // -------------------------------------------------------
-                // D. Calculate vertical drop for middle segment
+                // D. Calculate vertical shift for middle segment
                 // -------------------------------------------------------
                 double effectiveClearanceMm;
                 if (pair.AutoClearance)
                 {
-                    // Base clearance between the bottom of B and the top of A
-                    double baseClearanceMm = pair.UseAngle45
-                        ? 50.0
-                        : Math.Ceiling(Math.Max(radiusA, radiusB) * 3.5 * 304.8);
-
-                    double pipeBAxisZ_check = GetZAtXY(pt3, pt4, ptOnA.X, ptOnA.Y);
-                    bool   bIsAboveA        = pipeBAxisZ_check > ptOnA.Z;
-
-                    // When B is well above A the diagonal/vertical sections gain extra
-                    // height naturally. But when B is only slightly above A (close to
-                    // ptOnA.Z) the fittings physically overlap B — add 1× diameter extra.
-                    double extraClearanceMm = 0.0;
-                    if (bIsAboveA)
+                    // Base clearance depends on element kind and angle:
+                    //   RoundDuct  90°: 3.5×max(R)   angled: 50mm
+                    //   Pipe       90°: 3.5×max(R)   angled: 50mm  + 1 diameter bonus
+                    //   RectDuct   90°: 9.0×max(R)
+                    //              30°: 0.5×height = 1.0×radiusA
+                    //              45°: 1.5×height = 3.0×radiusA
+                    //              60°: 2.5×height = 5.0×radiusA
+                    double baseClearanceMm;
+                    if (kindA == MepKind.RectDuct)
                     {
-                        // Available head-room = (pipeBAxisZ - radiusB) - ptOnA.Z  (in mm)
-                        double headroomMm      = (pipeBAxisZ_check - radiusB - ptOnA.Z) * 304.8;
-                        double fittingHeightMm = Math.Max(radiusA, radiusB) * 304.8; // 1× max-radius extra
-                        if (headroomMm < fittingHeightMm + baseClearanceMm)
+                        if (isAngled)
                         {
-                            extraClearanceMm = fittingHeightMm + baseClearanceMm - headroomMm;
-                            DebugLogger.Log($"[CLASH-RESOLVER] B is above A — adding extra clearance {extraClearanceMm:F0}mm for fittings");
+                            double angleMult = GetRectDuctAngledClearanceMult(pair.AngleDegrees);
+                            baseClearanceMm = Math.Ceiling(radiusA * angleMult * 304.8);
+                        }
+                        else
+                        {
+                            baseClearanceMm = Math.Ceiling(Math.Max(radiusA, radiusB) * 9.0 * 304.8);
                         }
                     }
+                    else
+                    {
+                        baseClearanceMm = isAngled
+                            ? 50.0
+                            : Math.Ceiling(Math.Max(radiusA, radiusB) * 3.5 * 304.8);
+                        // Pipe bonus: +1 diameter of pipe A
+                        if (kindA == MepKind.Pipe)
+                            baseClearanceMm += radiusA * 2.0 * 304.8;
+                    }
+
+                    double pipeBAxisZ_check = GetZAtXY(pt3, pt4, ptOnA.X, ptOnA.Y);
+                    double extraClearanceMm = 0.0;
+
+                    if (!pair.BypassUp)
+                    {
+                        // Bypass down: B may be just above A — check if fitting won't clear B's underside
+                        bool bIsAboveA = pipeBAxisZ_check > ptOnA.Z;
+                        if (bIsAboveA)
+                        {
+                            double headroomMm      = (pipeBAxisZ_check - radiusB - ptOnA.Z) * 304.8;
+                            double fittingHeightMm = Math.Max(radiusA, radiusB) * 304.8;
+                            if (headroomMm < fittingHeightMm + baseClearanceMm)
+                            {
+                                extraClearanceMm = fittingHeightMm + baseClearanceMm - headroomMm;
+                                DebugLogger.Log($"[CLASH-RESOLVER] B above A — adding extra clearance {extraClearanceMm:F0}mm");
+                            }
+                        }
+                    }
+                    // Bypass up: fitting goes upward away from B, no extra clearance needed.
 
                     effectiveClearanceMm = baseClearanceMm + extraClearanceMm;
-                    DebugLogger.Log($"[CLASH-RESOLVER] AutoClearance ({(pair.UseAngle45 ? "45°" : "90°")}): base={baseClearanceMm:F0}mm extra={extraClearanceMm:F0}mm total={effectiveClearanceMm:F0}mm");
+                                        DebugLogger.Log($"[CLASH-RESOLVER] AutoClearance ({pair.AngleDegrees:F0}°, {(pair.BypassUp ? "сверху" : "снизу")}): base={baseClearanceMm:F0}mm extra={extraClearanceMm:F0}mm total={effectiveClearanceMm:F0}mm");
                 }
                 else
                 {
@@ -198,39 +308,68 @@ namespace ClashResolve.Module.Core
                 result.UsedClearanceMm = effectiveClearanceMm;
 
                 double clearanceFeet = effectiveClearanceMm * FeetPerMm;
+                double pipeBAxisZ    = GetZAtXY(pt3, pt4, ptOnA.X, ptOnA.Y);
 
-                double pipeBAxisZ        = GetZAtXY(pt3, pt4, ptOnA.X, ptOnA.Y);
-                double pipeBBottomOuterZ = pipeBAxisZ - radiusB;
-                double middleTopZ        = pipeBBottomOuterZ - clearanceFeet;
-                double middleAxisZ       = middleTopZ - radiusA;
-                double currentMiddleZ    = ptOnA.Z;
-                double dropZ             = middleAxisZ - currentMiddleZ;
-                XYZ moveVector           = new XYZ(0, 0, dropZ);
+                double middleAxisZ;
+                if (!pair.BypassUp)
+                {
+                    // A goes below B
+                    double pipeBBottomOuterZ = pipeBAxisZ - radiusB;
+                    middleAxisZ = pipeBBottomOuterZ - clearanceFeet - radiusA;
+                }
+                else
+                {
+                    // A goes above B
+                    double pipeBTopOuterZ = pipeBAxisZ + radiusB;
+                    middleAxisZ = pipeBTopOuterZ + clearanceFeet + radiusA;
+                }
+
+                double currentMiddleZ = ptOnA.Z;
+                double dropZ          = middleAxisZ - currentMiddleZ;
+                XYZ moveVector        = new XYZ(0, 0, dropZ);
 
                 result.DropMm = dropZ * 304.8;
 
                 DebugLogger.Log($"[CLASH-RESOLVER] PipeB axis Z at intersection: {pipeBAxisZ * 304.8:F1}mm");
-                DebugLogger.Log($"[CLASH-RESOLVER] PipeB bottom outer Z: {pipeBBottomOuterZ * 304.8:F1}mm");
-                DebugLogger.Log($"[CLASH-RESOLVER] Middle segment drop: {dropZ * 304.8:F1}mm");
+                DebugLogger.Log($"[CLASH-RESOLVER] Direction: {(pair.BypassUp ? "сверху" : "снизу")}, shift: {dropZ * 304.8:F1}mm");
 
-                if (dropZ >= 0)
+                if (!pair.BypassUp && dropZ >= 0)
                 {
                     result.Message = "Труба A уже находится ниже трубы B. Обход не требуется.";
+                    return result;
+                }
+                if (pair.BypassUp && dropZ <= 0)
+                {
+                    result.Message = "Труба A уже находится выше трубы B. Обход не требуется.";
                     return result;
                 }
 
                 // -------------------------------------------------------
                 // C2. Compute final split offsets.
-                // 45° mode: expand split points outward by |dropZ| (=expandFt) so
-                // the middle segment is longer. After lowering, we will trim it
-                // inward by expandFt on each side via LocationCurve, creating a
-                // gap of dxy=expandFt, dz=expandFt between each horizontal end
-                // and the trimmed middle — giving natural 45° for ConnectOpenEnds.
-                // 90° mode: no expansion.
+                // Angle is measured from horizontal: dxy/dz = cot(angle) = 1/tan(angle).
+                // 30° from horiz → cot(30°)=1.732 (long/shallow diagonal)
+                // 45° from horiz → cot(45°)=1.0   (equal dxy and dz)
+                // 60° from horiz → cot(60°)=0.577 (short/steep diagonal)
+                // 90° mode: no expansion (vertical duct between levels).
                 // -------------------------------------------------------
-                double expandFt = pair.UseAngle45 ? Math.Abs(dropZ) : 0.0;
-                if (pair.UseAngle45)
-                    DebugLogger.Log($"[CLASH-RESOLVER] 45° mode: expandFt={expandFt * 304.8:F1}mm each side");
+                double expandFt = isAngled
+                    ? Math.Abs(dropZ) / Math.Tan(pair.AngleDegrees * Math.PI / 180.0)
+                    : 0.0;
+                if (isAngled)
+                    DebugLogger.Log($"[CLASH-RESOLVER] {pair.AngleDegrees:F0}° mode: expandFt={expandFt * 304.8:F1}mm each side");
+
+                // Guarantee splitOffset > expandFt so trimmed middle segment is never zero.
+                // minSafeHalf = 1 × radiusA (half the duct height) as residual after trim.
+                if (isAngled && pair.AutoHalfLength)
+                {
+                    double minSafeHalfFt = radiusA; // radiusA already in feet
+                    if (splitOffset < expandFt + minSafeHalfFt)
+                    {
+                        splitOffset = expandFt + minSafeHalfFt;
+                        result.UsedHalfLengthMm = splitOffset / FeetPerMm;
+                        DebugLogger.Log($"[CLASH-RESOLVER] splitOffset clamped to {splitOffset * 304.8:F1}mm (expandFt={expandFt * 304.8:F1}mm + minSafe={minSafeHalfFt * 304.8:F1}mm)");
+                    }
+                }
 
                 // Parametric positions along A's axis (from pt1)
                 double totalLength = pt1.DistanceTo(pt2);
@@ -347,18 +486,17 @@ namespace ClashResolve.Module.Core
                     DebugLogger.Log($"[CLASH-RESOLVER] Middle segment moved by {dropZ * 304.8:F1}mm");
 
                     bool conn1, conn2;
-                    if (pair.UseAngle45 && expandFt > 1e-9)
+                    if (isAngled && expandFt > 1e-9)
                     {
                         // -------------------------------------------------------
-                        // E3b. 45° mode: trim middle inward by expandFt on each side,
+                        // E3b. Angled mode: trim middle inward by expandFt on each side,
                         // then create diagonal segments + elbows via Connect45Fixed.
                         //
                         // After lowering, middle spans splitPt1..splitPt2 @ Z_low.
                         // We trim it to (splitPt1+expand)...(splitPt2-expand) @ Z_low.
-                        // Gap left↔middle: ptA=(splitPt1@Z_orig), ptB=(splitPt1+expand@Z_low)
-                        //   → dxy=expand=|dropZ|, dz=|dropZ| → exact 45°.
+                        // Gap: dxy=expandFt, dz=|dropZ| → angle = atan(dz/dxy) matches chosen angle.
                         // We create a diagonal segment ptA→ptB, then:
-                        //   • elbow(connA_horiz, diagConnTop)  — 45° at top
+                        //   • elbow(connA_horiz, diagConnTop)  — angle fitting at top
                         //   • ConnectTo(diagConnBot, connB_middle) — coincident, no elbow needed
                         // -------------------------------------------------------
                         try
@@ -380,11 +518,11 @@ namespace ClashResolve.Module.Core
                                     lc.Curve = Line.CreateBound(
                                         startIsLeft ? newLeft : newRight,
                                         startIsLeft ? newRight : newLeft);
-                                    DebugLogger.Log($"[CLASH-RESOLVER] 45° middle trimmed: left={newLeft.X*304.8:F0},{newLeft.Y*304.8:F0},{newLeft.Z*304.8:F0}  right={newRight.X*304.8:F0},{newRight.Y*304.8:F0},{newRight.Z*304.8:F0}");
+                                    DebugLogger.Log($"[CLASH-RESOLVER] {pair.AngleDegrees:F0}° middle trimmed: left={newLeft.X*304.8:F0},{newLeft.Y*304.8:F0},{newLeft.Z*304.8:F0}  right={newRight.X*304.8:F0},{newRight.Y*304.8:F0},{newRight.Z*304.8:F0}");
                                 }
                             }
                         }
-                        catch (Exception ex) { DebugLogger.Log($"[CLASH-RESOLVER] 45° trim failed: {ex.Message}"); }
+                        catch (Exception ex) { DebugLogger.Log($"[CLASH-RESOLVER] {pair.AngleDegrees:F0}° trim failed: {ex.Message}"); }
 
                         conn1 = Connect45Fixed(doc, leftId,  middleId, result);
                         conn2 = Connect45Fixed(doc, rightId, middleId, result);
@@ -415,6 +553,390 @@ namespace ClashResolve.Module.Core
         }
 
         // -----------------------------------------------------------------------
+        // Multi-B: one pipe A bypasses ALL selected pipes B in a single operation
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Resolve a clash where pipe A must bypass multiple pipes B simultaneously.
+        /// Steps:
+        ///   1. Find all B pipes that physically intersect A.
+        ///   2. Project intersections onto A's axis → take t_min / t_max as bypass zone.
+        ///   3. Compute the deepest required drop across all intersecting B pipes.
+        ///   4. Split A at (t_min - halfLength) and (t_max + halfLength), lower middle, connect.
+        /// If pipe A intersects no B pipe, returns Success=false with empty Message (silent skip).
+        /// </summary>
+        public ClashResolveResult ResolveClashMultiB(Document doc, ClashMultiPair pair)
+        {
+            var result = new ClashResolveResult();
+            try
+            {
+                // -------------------------------------------------------
+                // A. Geometry of pipe A
+                // -------------------------------------------------------
+                Element elemA = doc.GetElement(pair.PipeAId);
+                if (elemA == null)
+                {
+                    result.Message = "Труба A не найдена в документе.";
+                    return result;
+                }
+
+                if (!TryGetAxisAndRadius(elemA, out XYZ pt1, out XYZ pt2, out double radiusA))
+                {
+                    result.Message = "Элемент A не является трубой или воздуховодом.";
+                    return result;
+                }
+
+                XYZ dirA        = (pt2 - pt1).Normalize();
+                double totalLen = pt1.DistanceTo(pt2);
+                result.PipeAId    = pair.PipeAId;
+                result.PipeAStart = pt1;
+                result.PipeAEnd   = pt2;
+                result.PipeARadiusMm = radiusA * 304.8;
+
+                DebugLogger.Log($"[MULTI-RESOLVER] PipeA ID={pair.PipeAId.Value}: {pt1} -> {pt2}, r={radiusA * 304.8:F1}mm");
+
+                // Determine element kind for multiplier selection
+                MepKind kindA = GetMepKind(elemA);
+                DebugLogger.Log($"[MULTI-RESOLVER] ElemA kind: {kindA}, radius={radiusA * 304.8:F1}mm");
+
+                // -------------------------------------------------------
+                // B. Find all intersecting B pipes, compute outermost t values
+                //    and the deepest required drop.
+                // -------------------------------------------------------
+                double tMin      = double.MaxValue;
+                double tMax      = double.MinValue;
+                double dropZFinal = 0.0;   // most negative = deepest required
+
+                // Parameters object compatible with ComputeDropZ
+                var dummyPair = new ClashPair
+                {
+                    AngleDegrees  = pair.AngleDegrees,
+                    AutoClearance = pair.AutoClearance,
+                    ClearanceMm   = pair.ClearanceMm,
+                    BypassUp      = pair.BypassUp,
+                };
+
+                // For bypass-down: keep the most-negative (deepest) dropZ
+                // For bypass-up:   keep the most-positive (highest) dropZ
+                dropZFinal = pair.BypassUp ? double.MinValue : double.MaxValue;
+
+                int bCount = 0;
+                foreach (var pipeBId in pair.PipeBIds)
+                {
+                    Element elemB = doc.GetElement(pipeBId);
+                    if (elemB == null) continue;
+
+                    if (!TryGetAxisAndRadius(elemB, out XYZ pb1, out XYZ pb2, out double radiusB))
+                        continue;
+
+                    // Point on A's axis closest to B's axis
+                    XYZ ptOnA = GetClosestPointOnLine(pt1, pt2, pb1, pb2);
+                    // Corresponding point on B's axis closest to ptOnA
+                    XYZ ptOnB = GetClosestPointOnLine(pb1, pb2, pt1, pt2);
+
+                    double gapDist = ptOnA.DistanceTo(ptOnB);
+                    DebugLogger.Log($"[MULTI-RESOLVER]   B ID={pipeBId.Value}: gapDist={gapDist * 304.8:F1}mm, sumR={(radiusA + radiusB) * 304.8:F1}mm");
+
+                    // Physical intersection check: axes must be closer than sum of radii
+                    if (gapDist > radiusA + radiusB + 0.01) // 0.01 ft ≈ 3mm tolerance
+                        continue;
+
+                    double t = (ptOnA - pt1).DotProduct(dirA);
+                    if (t < tMin) { tMin = t; }
+                    if (t > tMax) { tMax = t; }
+
+                    double dropZ_i = ComputeDropZ(pt1, pt2, radiusA, pb1, pb2, radiusB, ptOnA, dummyPair, kindA);
+                    DebugLogger.Log($"[MULTI-RESOLVER]   B ID={pipeBId.Value}: t={t * 304.8:F1}mm, shift={dropZ_i * 304.8:F1}mm");
+
+                    // Keep the "worst" shift: most negative (down) or most positive (up)
+                    if (!pair.BypassUp && dropZ_i < dropZFinal)
+                        dropZFinal = dropZ_i;
+                    else if (pair.BypassUp && dropZ_i > dropZFinal)
+                        dropZFinal = dropZ_i;
+
+                    bCount++;
+                }
+
+                if (dropZFinal == double.MaxValue || dropZFinal == double.MinValue)
+                    dropZFinal = 0.0; // safety reset if no B was processed
+
+                if (bCount == 0)
+                {
+                    // No actual intersections — silent skip
+                    DebugLogger.Log($"[MULTI-RESOLVER] PipeA ID={pair.PipeAId.Value}: no intersecting B pipes found, skipping.");
+                    result.Message = "";
+                    result.Success = false;
+                    return result;
+                }
+
+                DebugLogger.Log($"[MULTI-RESOLVER] Found {bCount} intersecting B pipes. tMin={tMin * 304.8:F1}mm tMax={tMax * 304.8:F1}mm dropZFinal={dropZFinal * 304.8:F1}mm");
+
+                if (!pair.BypassUp && dropZFinal >= 0)
+                {
+                    result.Message = "Труба A уже находится ниже всех труб B. Обход не требуется.";
+                    return result;
+                }
+                if (pair.BypassUp && dropZFinal <= 0)
+                {
+                    result.Message = "Труба A уже находится выше всех труб B. Обход не требуется.";
+                    return result;
+                }
+
+                // -------------------------------------------------------
+                // C. Compute half-length and expand (angled mode)
+                // -------------------------------------------------------
+                bool isAngledMulti = Math.Abs(pair.AngleDegrees - 90.0) > 0.5;
+
+                // Half-length multipliers (same rules as ResolveClash)
+                double halfLengthMultiplierM = isAngledMulti ? 3.0 : 2.5;
+                if (kindA == MepKind.RectDuct && !isAngledMulti)
+                    halfLengthMultiplierM = 6.0;
+
+                double effectiveHalfLengthMm = pair.AutoHalfLength
+                    ? Math.Ceiling(radiusA * halfLengthMultiplierM * 304.8)
+                    : pair.HalfLengthMm;
+                if (kindA == MepKind.Pipe && pair.AutoHalfLength)
+                    effectiveHalfLengthMm += radiusA * 2.0 * 304.8;
+
+                double splitOffset = effectiveHalfLengthMm * FeetPerMm;
+                double expandFt    = isAngledMulti
+                    ? Math.Abs(dropZFinal) / Math.Tan(pair.AngleDegrees * Math.PI / 180.0)
+                    : 0.0;
+
+                // Guarantee splitOffset > expandFt so trimmed middle segment is never zero.
+                if (isAngledMulti && pair.AutoHalfLength)
+                {
+                    double minSafeHalfFt = radiusA;
+                    if (splitOffset < expandFt + minSafeHalfFt)
+                    {
+                        splitOffset = expandFt + minSafeHalfFt;
+                        DebugLogger.Log($"[MULTI-RESOLVER] splitOffset clamped to {splitOffset * 304.8:F1}mm (expandFt={expandFt * 304.8:F1}mm + minSafe={minSafeHalfFt * 304.8:F1}mm)");
+                    }
+                }
+
+                double minSegmentFt = 0.15;
+
+                double t1split = tMin - splitOffset - expandFt;
+                double t2split = tMax + splitOffset + expandFt;
+
+                t1split = Math.Max(minSegmentFt, Math.Min(t1split, totalLen - minSegmentFt));
+                t2split = Math.Max(minSegmentFt, Math.Min(t2split, totalLen - minSegmentFt));
+
+                if (t1split >= t2split - minSegmentFt)
+                {
+                    result.Message = $"Труба A слишком короткая для обхода нескольких препятствий. " +
+                        $"Длина трубы A: {totalLen * 304.8:F0}мм, " +
+                        $"требуется минимум {(t2split - t1split + 2 * minSegmentFt) * 304.8:F0}мм.";
+                    return result;
+                }
+
+                XYZ splitPt1 = pt1 + dirA.Multiply(t1split);
+                XYZ splitPt2 = pt1 + dirA.Multiply(t2split);
+
+                // A representative centre point for FindSegmentContainingPoint (middle of bypass zone)
+                XYZ ptCenter = pt1 + dirA.Multiply((tMin + tMax) / 2.0);
+
+                XYZ moveVector = new XYZ(0, 0, dropZFinal);
+                result.DropMm = dropZFinal * 304.8;
+                result.UsedClearanceMm = pair.ClearanceMm;
+                result.UsedHalfLengthMm = effectiveHalfLengthMm;
+
+                DebugLogger.Log($"[MULTI-RESOLVER] splitPt1 t={t1split * 304.8:F1}mm  splitPt2 t={t2split * 304.8:F1}mm  middle span={(t2split - t1split) * 304.8:F1}mm");
+                DebugLogger.Log($"[MULTI-RESOLVER] drop={dropZFinal * 304.8:F1}mm  expand={expandFt * 304.8:F1}mm");
+
+                // -------------------------------------------------------
+                // D. Execute in transaction: split → move → connect
+                //    (identical logic to ResolveClash E1..E3)
+                // -------------------------------------------------------
+                using (var tx = new Transaction(doc, "Multi Clash Resolve: обход труб"))
+                {
+                    tx.Start();
+
+                    ElementId returnedIdAfterCut1 = SplitCurve(doc, pair.PipeAId, splitPt1);
+                    if (returnedIdAfterCut1 == null || returnedIdAfterCut1 == ElementId.InvalidElementId)
+                    {
+                        tx.RollBack();
+                        result.Message = $"Не удалось выполнить первый разрез трубы A " +
+                            $"(X={splitPt1.X * 304.8:F0}, Y={splitPt1.Y * 304.8:F0}, Z={splitPt1.Z * 304.8:F0}мм).";
+                        return result;
+                    }
+
+                    ElementId segContainingSplit2 = FindSegmentContainingPoint(doc,
+                        new[] { pair.PipeAId, returnedIdAfterCut1 }, splitPt2, minSegmentFt);
+
+                    if (segContainingSplit2 == null || segContainingSplit2 == ElementId.InvalidElementId)
+                    {
+                        tx.RollBack();
+                        result.Message = $"После первого разреза не удалось найти сегмент, содержащий вторую точку разреза.";
+                        return result;
+                    }
+
+                    ElementId leftId = (segContainingSplit2 == pair.PipeAId)
+                        ? returnedIdAfterCut1
+                        : pair.PipeAId;
+
+                    ElementId returnedIdAfterCut2 = SplitCurve(doc, segContainingSplit2, splitPt2);
+                    if (returnedIdAfterCut2 == null || returnedIdAfterCut2 == ElementId.InvalidElementId)
+                    {
+                        tx.RollBack();
+                        result.Message = $"Не удалось выполнить второй разрез трубы A.";
+                        return result;
+                    }
+
+                    // Middle segment is the one containing the centre of the bypass zone
+                    ElementId middleId = FindSegmentContainingPoint(doc,
+                        new[] { segContainingSplit2, returnedIdAfterCut2 }, ptCenter, 0);
+                    ElementId rightId  = (middleId == segContainingSplit2)
+                        ? returnedIdAfterCut2
+                        : segContainingSplit2;
+
+                    if (middleId == null || middleId == ElementId.InvalidElementId)
+                    {
+                        middleId = segContainingSplit2;
+                        rightId  = returnedIdAfterCut2;
+                        DebugLogger.Log("[MULTI-RESOLVER] Warning: could not determine middle by centre point, using fallback.");
+                    }
+
+                    DebugLogger.Log($"[MULTI-RESOLVER] Segments: left={leftId} middle={middleId} right={rightId}");
+
+                    ElementTransformUtils.MoveElement(doc, middleId, moveVector);
+
+                    bool conn1, conn2;
+                    if (isAngledMulti && expandFt > 1e-9)
+                    {
+                        // Angled mode: trim middle inward by expandFt then insert diagonal segments
+                        try
+                        {
+                            MEPCurve middleMep = doc.GetElement(middleId) as MEPCurve;
+                            if (middleMep != null)
+                            {
+                                var lc = middleMep.Location as LocationCurve;
+                                Line oldLine = lc?.Curve as Line;
+                                if (oldLine != null)
+                                {
+                                    XYZ mStart = oldLine.GetEndPoint(0);
+                                    XYZ mEnd   = oldLine.GetEndPoint(1);
+                                    bool startIsLeft = mStart.DistanceTo(splitPt1) < mEnd.DistanceTo(splitPt1);
+                                    XYZ leftEnd  = startIsLeft ? mStart : mEnd;
+                                    XYZ rightEnd = startIsLeft ? mEnd   : mStart;
+                                    XYZ newLeft  = new XYZ(leftEnd.X  + dirA.X * expandFt, leftEnd.Y  + dirA.Y * expandFt, leftEnd.Z);
+                                    XYZ newRight = new XYZ(rightEnd.X - dirA.X * expandFt, rightEnd.Y - dirA.Y * expandFt, rightEnd.Z);
+                                    lc.Curve = Line.CreateBound(
+                                        startIsLeft ? newLeft : newRight,
+                                        startIsLeft ? newRight : newLeft);
+                                }
+                            }
+                        }
+                        catch (Exception ex) { DebugLogger.Log($"[MULTI-RESOLVER] 45° trim failed: {ex.Message}"); }
+
+                        conn1 = Connect45Fixed(doc, leftId,  middleId, result);
+                        conn2 = Connect45Fixed(doc, rightId, middleId, result);
+                    }
+                    else
+                    {
+                        conn1 = ConnectOpenEnds(doc, leftId,  middleId, result);
+                        conn2 = ConnectOpenEnds(doc, middleId, rightId, result);
+                    }
+
+                    if (!conn1 || !conn2)
+                        DebugLogger.Log("[MULTI-RESOLVER] Warning: some connections could not be created.");
+
+                    tx.Commit();
+                }
+
+                result.Success = true;
+                result.Message = "Обход успешно создан. Труба A перестроена под все трубы B.";
+                return result;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[MULTI-RESOLVER] ERROR: {ex.Message}\n{ex.StackTrace}");
+                result.Message = $"Ошибка: {ex.Message}";
+                return result;
+            }
+        }
+
+        /// <summary>
+        /// Compute the vertical drop required to position pipe A's axis below pipe B,
+        /// respecting clearance settings. Returns a negative value (downward shift in feet).
+        /// </summary>
+        private double ComputeDropZ(XYZ pt1, XYZ pt2, double radiusA,
+            XYZ pb1, XYZ pb2, double radiusB,
+            XYZ ptOnA, ClashPair pair, MepKind kindA = MepKind.RoundDuct)
+        {
+            double effectiveClearanceMm;
+            if (pair.AutoClearance)
+            {
+                bool isAngledC = Math.Abs(pair.AngleDegrees - 90.0) > 0.5;
+                double baseClearanceMm;
+                if (kindA == MepKind.RectDuct)
+                {
+                    if (isAngledC)
+                    {
+                        double angleMult = GetRectDuctAngledClearanceMult(pair.AngleDegrees);
+                        baseClearanceMm = Math.Ceiling(radiusA * angleMult * 304.8);
+                    }
+                    else
+                    {
+                        baseClearanceMm = Math.Ceiling(Math.Max(radiusA, radiusB) * 9.0 * 304.8);
+                    }
+                }
+                else
+                {
+                    baseClearanceMm = isAngledC
+                        ? 50.0
+                        : Math.Ceiling(Math.Max(radiusA, radiusB) * 3.5 * 304.8);
+                    if (kindA == MepKind.Pipe)
+                        baseClearanceMm += radiusA * 2.0 * 304.8;
+                }
+
+                double pipeBAxisZ_check = GetZAtXY(pb1, pb2, ptOnA.X, ptOnA.Y);
+
+                if (!pair.BypassUp)
+                {
+                    // Bypass down: check if B is above A and fittings might clip it
+                    bool   bIsAboveA        = pipeBAxisZ_check > ptOnA.Z;
+                    double extraClearanceMm = 0.0;
+                    if (bIsAboveA)
+                    {
+                        double headroomMm      = (pipeBAxisZ_check - radiusB - ptOnA.Z) * 304.8;
+                        double fittingHeightMm = Math.Max(radiusA, radiusB) * 304.8;
+                        if (headroomMm < fittingHeightMm + baseClearanceMm)
+                            extraClearanceMm = fittingHeightMm + baseClearanceMm - headroomMm;
+                    }
+                    effectiveClearanceMm = baseClearanceMm + extraClearanceMm;
+                }
+                else
+                {
+                    // Bypass up: fitting goes upward away from B, no extra clearance needed.
+                    effectiveClearanceMm = baseClearanceMm;
+                }
+            }
+            else
+            {
+                effectiveClearanceMm = pair.ClearanceMm;
+            }
+
+            double clearanceFeet = effectiveClearanceMm * FeetPerMm;
+            double pipeBAxisZ    = GetZAtXY(pb1, pb2, ptOnA.X, ptOnA.Y);
+
+            if (!pair.BypassUp)
+            {
+                // A goes below B: target = below B bottom outer edge
+                double pipeBBottomOuter = pipeBAxisZ - radiusB;
+                double middleAxisZ      = pipeBBottomOuter - clearanceFeet - radiusA;
+                return middleAxisZ - ptOnA.Z; // negative = must go down
+            }
+            else
+            {
+                // A goes above B: target = above B top outer edge
+                double pipeBTopOuter = pipeBAxisZ + radiusB;
+                double middleAxisZ   = pipeBTopOuter + clearanceFeet + radiusA;
+                return middleAxisZ - ptOnA.Z; // positive = must go up
+            }
+        }
+
+        // -----------------------------------------------------------------------
         // Geometry helpers
         // -----------------------------------------------------------------------
 
@@ -439,14 +961,27 @@ namespace ClashResolve.Module.Core
             start = line.GetEndPoint(0);
             end = line.GetEndPoint(1);
 
-            // Diameter parameter - works for both Pipe and Duct
+            // Diameter parameter — works for round Pipe and round Duct
             Parameter diamParam = mep.get_Parameter(BuiltInParameter.RBS_PIPE_OUTER_DIAMETER)
                                ?? mep.get_Parameter(BuiltInParameter.RBS_CURVE_DIAMETER_PARAM)
                                ?? mep.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM);
 
-            if (diamParam != null && diamParam.HasValue)
+            if (diamParam != null && diamParam.HasValue && diamParam.AsDouble() > 1e-9)
             {
                 radius = diamParam.AsDouble() / 2.0;
+            }
+            else if (mep is Duct)
+            {
+                // Rectangular duct: use height/2 as effective radius (vertical clearance dimension)
+                Parameter hParam = mep.get_Parameter(BuiltInParameter.RBS_CURVE_HEIGHT_PARAM);
+                if (hParam != null && hParam.HasValue)
+                    radius = hParam.AsDouble() / 2.0;
+                else
+                {
+                    // Fallback: use bounding box half-height
+                    BoundingBoxXYZ bb = elem.get_BoundingBox(null);
+                    radius = bb != null ? (bb.Max.Z - bb.Min.Z) / 2.0 : 0.05;
+                }
             }
             else
             {
@@ -996,8 +1531,11 @@ namespace ClashResolve.Module.Core
                 Duct d = Duct.Create(doc, sysTypeId, ductTypeId, levelId, ptA, ptB);
                 if (d == null) return ElementId.InvalidElementId;
 
-                // Copy diameter from source
-                CopyDiameter(ductSrc, d);
+                // For rectangular ducts copy width+height; for round ducts copy diameter
+                if (GetMepKind(ductSrc) == MepKind.RectDuct)
+                    CopyDuctShape(ductSrc, d);
+                else
+                    CopyDiameter(ductSrc, d);
 
                 return d.Id;
             }
@@ -1067,6 +1605,36 @@ namespace ClashResolve.Module.Core
             catch (Exception ex)
             {
                 DebugLogger.Log($"[CLASH-RESOLVER] CopyDiameter failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Copies width and height from a rectangular source duct to a target duct.
+        /// </summary>
+        private void CopyDuctShape(Duct source, Duct target)
+        {
+            try
+            {
+                // Width
+                Parameter srcW = source.get_Parameter(BuiltInParameter.RBS_CURVE_WIDTH_PARAM);
+                Parameter dstW = target.get_Parameter(BuiltInParameter.RBS_CURVE_WIDTH_PARAM);
+                if (srcW != null && dstW != null && !dstW.IsReadOnly)
+                {
+                    dstW.Set(srcW.AsDouble());
+                    DebugLogger.Log($"[CLASH-RESOLVER] CopyDuctShape: width={srcW.AsDouble() * 304.8:F0}mm");
+                }
+                // Height
+                Parameter srcH = source.get_Parameter(BuiltInParameter.RBS_CURVE_HEIGHT_PARAM);
+                Parameter dstH = target.get_Parameter(BuiltInParameter.RBS_CURVE_HEIGHT_PARAM);
+                if (srcH != null && dstH != null && !dstH.IsReadOnly)
+                {
+                    dstH.Set(srcH.AsDouble());
+                    DebugLogger.Log($"[CLASH-RESOLVER] CopyDuctShape: height={srcH.AsDouble() * 304.8:F0}mm");
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[CLASH-RESOLVER] CopyDuctShape failed: {ex.Message}");
             }
         }
 

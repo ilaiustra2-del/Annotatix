@@ -55,18 +55,18 @@ namespace ClashResolve.Module.UI
         {
             Dispatcher.Invoke(() =>
             {
-                bool angle45 = IsAngle45();
+                bool isAngled = Math.Abs(GetAngleDegrees() - 90.0) > 0.5;
 
                 if (chkAutoClearance.IsChecked == true)
                 {
-                    double clearanceMm = angle45 ? 50.0 : Math.Ceiling(rMaxMm * 3.5);
+                    double clearanceMm = isAngled ? 50.0 : Math.Ceiling(rMaxMm * 3.5);
                     txtClearance.Text = ((int)clearanceMm).ToString();
                 }
 
                 if (chkAutoLength.IsChecked == true)
                 {
                     // full segment = 2 × halfLength; halfLength = rMax * coeff
-                    double halfMm = Math.Ceiling(rMaxMm * (angle45 ? 3.0 : 2.5));
+                    double halfMm = Math.Ceiling(rMaxMm * (isAngled ? 3.0 : 2.5));
                     txtSegmentLength.Text = ((int)(halfMm * 2)).ToString();
                 }
             });
@@ -75,10 +75,19 @@ namespace ClashResolve.Module.UI
         // ----------------------------------------------------------------
         // Private helpers
         // ----------------------------------------------------------------
-        private bool IsAngle45()
+        private double GetAngleDegrees()
         {
             var item = cmbAngle.SelectedItem as ComboBoxItem;
-            return item?.Content?.ToString() == "45°";
+            string s = item?.Content?.ToString() ?? "90°";
+            if (double.TryParse(s.TrimEnd('°'), out double deg))
+                return deg;
+            return 90.0;
+        }
+
+        private bool IsBypassUp()
+        {
+            var item = cmbDirection.SelectedItem as ComboBoxItem;
+            return item?.Content?.ToString() == "Сверху";
         }
 
         // ----------------------------------------------------------------
@@ -124,8 +133,9 @@ namespace ClashResolve.Module.UI
         {
             bool autoClearance = chkAutoClearance.IsChecked == true;
             bool autoLength    = chkAutoLength.IsChecked == true;
-            bool angle45       = IsAngle45();
-            DebugLogger.Log($"[OPTIONS-BAR] TriggerResolve: angle45={angle45} selectedItem={cmbAngle.SelectedItem?.GetType().Name} content={(cmbAngle.SelectedItem as ComboBoxItem)?.Content}");
+            double angleDeg    = GetAngleDegrees();
+            bool bypassUp      = IsBypassUp();
+            DebugLogger.Log($"[OPTIONS-BAR] TriggerResolve: angle={angleDeg:F0}° bypassUp={bypassUp} selectedItem={cmbAngle.SelectedItem?.GetType().Name} content={(cmbAngle.SelectedItem as ComboBoxItem)?.Content}");
 
             double clearanceMm = 0;
             if (!autoClearance)
@@ -151,11 +161,12 @@ namespace ClashResolve.Module.UI
 
             ResolveRequested?.Invoke(new ClashResolveOptionsBarParams
             {
-                UseAngle45     = angle45,
+                AngleDegrees   = angleDeg,
                 ClearanceMm    = clearanceMm,
                 AutoClearance  = autoClearance,
                 HalfLengthMm   = segmentLengthMm / 2.0,  // halved before passing to ClashPair
-                AutoHalfLength = autoLength
+                AutoHalfLength = autoLength,
+                BypassUp       = bypassUp
             });
         }
         private void BtnExit_Click(object sender, RoutedEventArgs e)
@@ -167,10 +178,12 @@ namespace ClashResolve.Module.UI
     /// <summary>Parameters collected from the options bar.</summary>
     public class ClashResolveOptionsBarParams
     {
-        public bool   UseAngle45     { get; set; }
+        public double AngleDegrees   { get; set; } = 90.0;
         public double ClearanceMm    { get; set; }
         public bool   AutoClearance  { get; set; }
         public double HalfLengthMm   { get; set; }
         public bool   AutoHalfLength { get; set; }
+        /// <summary>When true, pipe A bypasses pipe B from above.</summary>
+        public bool   BypassUp       { get; set; }
     }
 }

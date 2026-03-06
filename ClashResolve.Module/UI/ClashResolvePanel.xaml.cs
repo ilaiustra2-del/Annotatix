@@ -155,7 +155,10 @@ namespace ClashResolve.Module.UI
 
             bool autoClearance  = chkAutoClearance.IsChecked == true;
             bool autoHalfLength = chkAutoHalfLength.IsChecked == true;
-            bool useAngle45     = rbAngle45.IsChecked == true;
+            double angleDeg     = rbAngle30.IsChecked == true ? 30.0
+                                : rbAngle45.IsChecked == true ? 45.0
+                                : rbAngle60.IsChecked == true ? 60.0
+                                : 90.0;
             double clearanceMm  = 0;
 
             if (!autoClearance)
@@ -200,7 +203,7 @@ namespace ClashResolve.Module.UI
                     HalfLengthMm   = halfLengthMm,
                     AutoClearance  = autoClearance,
                     AutoHalfLength = autoHalfLength,
-                    UseAngle45     = useAngle45
+                    AngleDegrees   = angleDeg
                 });
 
                 DebugLogger.Log($"[CLASH-PANEL] Result: Success={result.Success}, Msg={result.Message}");
@@ -319,17 +322,19 @@ namespace ClashResolve.Module.UI
                 if (rA <= 0 || rB <= 0) return;
 
                 double rMax  = Math.Max(rA, rB) * 304.8; // mm
-                bool angle45 = rbAngle45?.IsChecked == true;
+                bool isAngled = rbAngle45?.IsChecked == true
+                             || rbAngle60?.IsChecked == true
+                             || rbAngle30?.IsChecked == true;
 
                 if (chkAutoClearance.IsChecked == true)
                 {
-                    double clearanceMm = angle45 ? 50.0 : Math.Ceiling(rMax * 3.5);
+                    double clearanceMm = isAngled ? 50.0 : Math.Ceiling(rMax * 3.5);
                     txtClearance.Text = ((int)clearanceMm).ToString();
                 }
 
                 if (chkAutoHalfLength.IsChecked == true)
                 {
-                    double halfLengthMm = Math.Ceiling(rMax * (angle45 ? 3.0 : 2.5));
+                    double halfLengthMm = Math.Ceiling(rMax * (isAngled ? 3.0 : 2.5));
                     txtHalfLength.Text = ((int)(halfLengthMm * 2)).ToString(); // display full segment length
                 }
             }
