@@ -57,6 +57,12 @@ namespace ClashResolve.Module.Core
         /// When false (default), pipe A bypasses pipe B from below.
         /// </summary>
         public bool BypassUp { get; set; } = false;
+
+        /// <summary>
+        /// When true, ClashResolver will look up drop/segment values in ClashLookupService
+        /// before falling back to formula-based auto calculation.
+        /// </summary>
+        public bool UseTable { get; set; } = false;
     }
 
     /// <summary>
@@ -83,6 +89,12 @@ namespace ClashResolve.Module.Core
 
         /// <summary>When true, pipe A bypasses all B pipes from above.</summary>
         public bool BypassUp { get; set; } = false;
+
+        /// <summary>
+        /// When true, ClashResolver will look up drop/segment values in ClashLookupService
+        /// before falling back to formula-based auto calculation.
+        /// </summary>
+        public bool UseTable { get; set; } = false;
     }
 
     /// <summary>Result of a clash resolve operation.</summary>
@@ -122,7 +134,7 @@ namespace ClashResolve.Module.Core
         private const double FeetPerMm = 1.0 / 304.8;
 
         /// <summary>MEP element kind used for choosing calculation multipliers.</summary>
-        private enum MepKind { RoundDuct, RectDuct, Pipe }
+        // MepKind enum is now defined in ClashLookupTable.cs (public, same namespace)
 
         /// <summary>
         /// Determine the kind of MEP element: round duct, rectangular duct, or pipe.
@@ -142,19 +154,59 @@ namespace ClashResolve.Module.Core
         }
 
         /// <summary>
+        /// Returns the nominal size in mm for use in lookup table matching.
+        /// For Pipe: uses RBS_PIPE_DIAMETER_PARAM (nominal inner diameter).
+        /// For Duct: uses height param for RectDuct, diameter for RoundDuct.
+        /// Falls back to outer-radius * 2 if nominal param is unavailable.
+        /// </summary>
+        private static double GetNominalSizeMm(Element elem, MepKind kind, double radiusFt)
+        {
+            MEPCurve mep = elem as MEPCurve;
+            if (mep != null)
+            {
+                if (kind == MepKind.Pipe)
+                {
+                    // Try nominal (inner) diameter first — matches DN sizing
+                    Parameter nomDiam = mep.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM)
+                                     ?? mep.get_Parameter(BuiltInParameter.RBS_PIPE_INNER_DIAM_PARAM);
+                    if (nomDiam != null && nomDiam.HasValue && nomDiam.AsDouble() > 0)
+                        return nomDiam.AsDouble() * 304.8;
+                }
+                else if (kind == MepKind.RectDuct)
+                {
+                    // Use height param for rect duct (H dimension)
+                    Parameter h = mep.get_Parameter(BuiltInParameter.RBS_CURVE_HEIGHT_PARAM);
+                    if (h != null && h.HasValue && h.AsDouble() > 0)
+                        return h.AsDouble() * 304.8;
+                }
+                else // RoundDuct
+                {
+                    Parameter diam = mep.get_Parameter(BuiltInParameter.RBS_CURVE_DIAMETER_PARAM)
+                                  ?? mep.get_Parameter(BuiltInParameter.RBS_PIPE_OUTER_DIAMETER);
+                    if (diam != null && diam.HasValue && diam.AsDouble() > 0)
+                        return diam.AsDouble() * 304.8;
+                }
+            }
+            // Fallback: outer diameter from radius
+            return radiusFt * 2.0 * 304.8;
+        }
+
+        /// <summary>
         /// Returns the clearance multiplier applied to radiusA (= height/2) for rectangular
         /// ducts at angled connections:
-        ///   30° → 1.0  (0.5 × height = 1.0 × radiusA)
-        ///   45° → 3.0  (1.5 × height = 3.0 × radiusA)
-        ///   60° → 5.0  (2.5 × height = 5.0 × radiusA)
-        ///   other → 3.0 (default / 45°-equivalent)
+        ///   30° → 2.0  (1.0 × height = 2.0 × radiusA)
+        ///   45° → 6.0  (3.0 × height = 6.0 × radiusA)
+        ///   60° → 10.0 (5.0 × height = 10.0 × radiusA)
+        ///   other → 6.0 (default / 45°-equivalent)
+        /// Multipliers doubled compared to previous version to provide enough
+        /// room for elbow fittings at the angled joints.
         /// </summary>
         private static double GetRectDuctAngledClearanceMult(double angleDegrees)
         {
-            if (Math.Abs(angleDegrees - 30.0) < 0.5) return 1.0;
-            if (Math.Abs(angleDegrees - 45.0) < 0.5) return 3.0;
-            if (Math.Abs(angleDegrees - 60.0) < 0.5) return 5.0;
-            return 3.0; // fallback
+            if (Math.Abs(angleDegrees - 30.0) < 0.5) return 2.0;
+            if (Math.Abs(angleDegrees - 45.0) < 0.5) return 6.0;
+            if (Math.Abs(angleDegrees - 60.0) < 0.5) return 10.0;
+            return 6.0; // fallback
         }
 
         public ClashResolveResult ResolveClash(Document doc, ClashPair pair)
@@ -204,9 +256,33 @@ namespace ClashResolve.Module.Core
                 DebugLogger.Log($"[CLASH-RESOLVER] ElemA kind: {kindA}, radius={radiusA * 304.8:F1}mm");
 
                 // -------------------------------------------------------
+                // Lookup table override (applied before auto-formula logic)
+                // -------------------------------------------------------
+                if (pair.UseTable)
+                {
+                    double sizeMm = GetNominalSizeMm(elemA, kindA, radiusA);
+                    double? tableDropMm = ClashLookupService.Instance.LookupDrop(kindA, sizeMm, pair.AngleDegrees);
+                    double? tableSegMm  = ClashLookupService.Instance.LookupSegment(kindA, sizeMm, pair.AngleDegrees);
+                    DebugLogger.Log($"[CLASH-RESOLVER] Lookup: kind={kindA} sizeMm={sizeMm:F1} angle={pair.AngleDegrees:F0}° drop={tableDropMm?.ToString("F0") ?? "null"} seg={tableSegMm?.ToString("F0") ?? "null"}");
+
+                    if (tableDropMm.HasValue)
+                    {
+                        pair.AutoClearance = false;
+                        pair.ClearanceMm   = tableDropMm.Value;
+                        DebugLogger.Log($"[CLASH-RESOLVER] Lookup drop override: {tableDropMm.Value:F0}mm");
+                    }
+                    if (tableSegMm.HasValue)
+                    {
+                        pair.AutoHalfLength = false;
+                        pair.HalfLengthMm   = tableSegMm.Value / 2.0;
+                        DebugLogger.Log($"[CLASH-RESOLVER] Lookup segment override: {tableSegMm.Value:F0}mm (half={pair.HalfLengthMm:F0}mm)");
+                    }
+                }
+
+                // -------------------------------------------------------
                 // B. Find intersection point on axis of A (closest approach)
                 // -------------------------------------------------------
-                XYZ ptOnA = GetClosestPointOnLine(pt1, pt2, pt3, pt4);
+                XYZ ptOnA = GetClosestPointOnLine(pt1, pt2, pt3, pt4, clamped: false);
                 result.IntersectionPoint = ptOnA;
                 DebugLogger.Log($"[CLASH-RESOLVER] Intersection point on A: {ptOnA}");
 
@@ -221,19 +297,23 @@ namespace ClashResolve.Module.Core
 
                 // Auto half-length multipliers depend on element kind and angle:
                 //   RoundDuct  90°: 2.5×   angled: 3.0×
-                //   Pipe       90°: 2.5×   angled: 3.0×  + 1 diameter bonus
-                //   RectDuct   90°: 6.0×   angled: 3.0×  (same as round; length reduced 2-2.5× per user feedback)
+                //   Pipe       90°: 2.5×   angled: 1.5×  (halved per user feedback — was too long)
+                //   RectDuct   90°: 6.0×   angled: 6.0×  (increased to give fittings enough room)
                 bool isAngled = Math.Abs(pair.AngleDegrees - 90.0) > 0.5;
                 double halfLengthMultiplier = isAngled ? 3.0 : 2.5;
                 if (kindA == MepKind.RectDuct && !isAngled)
                     halfLengthMultiplier = 6.0;
+                if (kindA == MepKind.RectDuct && isAngled)
+                    halfLengthMultiplier = 6.0; // same as 90° — rect duct fittings need more room
+                if (kindA == MepKind.Pipe && isAngled)
+                    halfLengthMultiplier = 1.5; // reduced: was 3.0 + 1D bonus, now 1.5× only
 
                 double effectiveHalfLengthMm = pair.AutoHalfLength
                     ? Math.Ceiling(Math.Max(radiusA, radiusB) * halfLengthMultiplier * 304.8)
                     : pair.HalfLengthMm;
 
-                // Pipe bonus: add 1 diameter of pipe A to half-length
-                if (kindA == MepKind.Pipe && pair.AutoHalfLength)
+                // Pipe bonus in 90° mode only (angled mode already handled via multiplier above)
+                if (kindA == MepKind.Pipe && pair.AutoHalfLength && !isAngled)
                     effectiveHalfLengthMm += radiusA * 2.0 * 304.8;
 
                 if (pair.AutoHalfLength)
@@ -252,16 +332,27 @@ namespace ClashResolve.Module.Core
                     //   RoundDuct  90°: 3.5×max(R)   angled: 50mm
                     //   Pipe       90°: 3.5×max(R)   angled: 50mm  + 1 diameter bonus
                     //   RectDuct   90°: 9.0×max(R)
-                    //              30°: 0.5×height = 1.0×radiusA
-                    //              45°: 1.5×height = 3.0×radiusA
-                    //              60°: 2.5×height = 5.0×radiusA
+                    //              angled: enough to make the diagonal segment at least 3×width long
+                    //              so Revit can fit elbow fittings at both ends of the diagonal.
+                    //              minDiagMm = 3 × (2×radiusA_mm);  minShiftMm = minDiagMm × sin(angle)
+                    //              baseClearance = max(50, minShiftMm - radiusA_mm - radiusB_mm)
                     double baseClearanceMm;
                     if (kindA == MepKind.RectDuct)
                     {
                         if (isAngled)
                         {
-                            double angleMult = GetRectDuctAngledClearanceMult(pair.AngleDegrees);
-                            baseClearanceMm = Math.Ceiling(radiusA * angleMult * 304.8);
+                            // Compute minimum shift so the diagonal segment remains long enough
+                            // after Revit inserts elbow fittings at both ends.
+                            // Each elbow "consumes" ~1.88×radiusA from the diagonal.
+                            // minDiag = 2 × elbowSize + 1 width clearance = 2×(1.88×W) + W ≈ 4.76×W.
+                            // Use 5.0× for safety margin.
+                            // diagonal length = shift / sin(angle); shift = radiusA + clearance + radiusB.
+                            double radiusA_mm = radiusA * 304.8;
+                            double radiusB_mm = radiusB * 304.8;
+                            double minDiagMm  = 5.0 * (2.0 * radiusA_mm);
+                            double sinAngle   = Math.Sin(pair.AngleDegrees * Math.PI / 180.0);
+                            double minShiftMm = minDiagMm * sinAngle;
+                            baseClearanceMm   = Math.Max(50.0, minShiftMm - radiusA_mm - radiusB_mm);
                         }
                         else
                         {
@@ -270,11 +361,14 @@ namespace ClashResolve.Module.Core
                     }
                     else
                     {
+                        // Angled: 50mm base (same for both RoundDuct and Pipe — pipe diameter
+                        // bonus is NOT applied in angled mode because it makes expandFt too large).
+                        // 90°: 3.5×max(R) for RoundDuct; 3.5×max(R) + 1D for Pipe.
                         baseClearanceMm = isAngled
                             ? 50.0
                             : Math.Ceiling(Math.Max(radiusA, radiusB) * 3.5 * 304.8);
-                        // Pipe bonus: +1 diameter of pipe A
-                        if (kindA == MepKind.Pipe)
+                        // Pipe bonus only in 90° (vertical) mode
+                        if (kindA == MepKind.Pipe && !isAngled)
                             baseClearanceMm += radiusA * 2.0 * 304.8;
                     }
 
@@ -283,8 +377,14 @@ namespace ClashResolve.Module.Core
 
                     if (!pair.BypassUp)
                     {
-                        // Bypass down: B may be just above A — check if fitting won't clear B's underside
-                        bool bIsAboveA = pipeBAxisZ_check > ptOnA.Z;
+                        // Bypass down: B may be just above A — check if fitting won't clear B's underside.
+                        // Extra clearance is only added when B's axis is clearly above A's axis
+                        // (at least by more than the sum of outer radii), meaning B sits above A
+                        // and the fitting elbow would collide with B's bottom surface.
+                        // When B and A intersect in the same horizontal plane (standard collision),
+                        // headroomMm is negative and adding extra clearance would grossly over-shift.
+                        double clearanceGapMm = (pipeBAxisZ_check - ptOnA.Z) * 304.8;
+                        bool bIsAboveA = clearanceGapMm > (radiusA + radiusB) * 304.8;
                         if (bIsAboveA)
                         {
                             double headroomMm      = (pipeBAxisZ_check - radiusB - ptOnA.Z) * 304.8;
@@ -305,6 +405,25 @@ namespace ClashResolve.Module.Core
                 {
                     effectiveClearanceMm = pair.ClearanceMm;
                 }
+
+                // For RectDuct angled bypass, enforce a minimum clearance regardless of manual/auto mode.
+                // Revit elbow fittings each consume ~1.88×halfWidth from the diagonal segment.
+                // The diagonal must be >= 5×width (minDiag) so after both elbows enough remains.
+                // minShift = minDiag × sin(angle); minClearance = minShift - halfWidthA - halfWidthB.
+                if (kindA == MepKind.RectDuct && isAngled)
+                {
+                    double rAmm   = radiusA * 304.8;
+                    double rBmm   = radiusB * 304.8;
+                    double minDiag = 5.0 * (2.0 * rAmm);
+                    double sinA    = Math.Sin(pair.AngleDegrees * Math.PI / 180.0);
+                    double minClearance = Math.Max(50.0, minDiag * sinA - rAmm - rBmm);
+                    if (effectiveClearanceMm < minClearance)
+                    {
+                        DebugLogger.Log($"[CLASH-RESOLVER] RectDuct angled: user clearance {effectiveClearanceMm:F0}mm < required {minClearance:F0}mm — overriding");
+                        effectiveClearanceMm = minClearance;
+                    }
+                }
+
                 result.UsedClearanceMm = effectiveClearanceMm;
 
                 double clearanceFeet = effectiveClearanceMm * FeetPerMm;
@@ -351,6 +470,14 @@ namespace ClashResolve.Module.Core
                 // 45° from horiz → cot(45°)=1.0   (equal dxy and dz)
                 // 60° from horiz → cot(60°)=0.577 (short/steep diagonal)
                 // 90° mode: no expansion (vertical duct between levels).
+                //
+                // splitOffset = flatHalfLength + expandFt
+                //   where flatHalfLength is the half-length of the flat lowered section,
+                //   and expandFt is the horizontal footprint of the diagonal connector.
+                // t1 = tCenter - splitOffset - expandFt  (= tCenter - flatHalf - 2*expand)
+                // t2 = tCenter + splitOffset + expandFt  (= tCenter + flatHalf + 2*expand)
+                // After moving middle down, it is trimmed inward by expandFt on each side,
+                // leaving flatHalfLength*2 as the actual flat lowered section.
                 // -------------------------------------------------------
                 double expandFt = isAngled
                     ? Math.Abs(dropZ) / Math.Tan(pair.AngleDegrees * Math.PI / 180.0)
@@ -358,24 +485,27 @@ namespace ClashResolve.Module.Core
                 if (isAngled)
                     DebugLogger.Log($"[CLASH-RESOLVER] {pair.AngleDegrees:F0}° mode: expandFt={expandFt * 304.8:F1}mm each side");
 
-                // Guarantee splitOffset > expandFt so trimmed middle segment is never zero.
-                // minSafeHalf = 1 × radiusA (half the duct height) as residual after trim.
-                if (isAngled && pair.AutoHalfLength)
+                if (isAngled)
                 {
-                    double minSafeHalfFt = radiusA; // radiusA already in feet
-                    if (splitOffset < expandFt + minSafeHalfFt)
-                    {
-                        splitOffset = expandFt + minSafeHalfFt;
-                        result.UsedHalfLengthMm = splitOffset / FeetPerMm;
-                        DebugLogger.Log($"[CLASH-RESOLVER] splitOffset clamped to {splitOffset * 304.8:F1}mm (expandFt={expandFt * 304.8:F1}mm + minSafe={minSafeHalfFt * 304.8:F1}mm)");
-                    }
+                    // For auto mode: splitOffset already represents the desired flat half-length.
+                    // We promote it to splitOffset = flatHalf + expandFt so the flat section
+                    // comes out as expected, instead of being eroded by expandFt.
+                    // For manual mode: user-set HalfLengthMm is treated as the flat section too.
+                    // Minimum flat section: max(effectiveHalfLengthMm, 1*diameter) = max(user, 2*radiusA).
+                    double minFlatHalfFt = 2.0 * radiusA; // at least 1 diameter flat each side
+                    double flatHalfFt    = Math.Max(splitOffset, minFlatHalfFt);
+                    splitOffset = flatHalfFt + expandFt;
+                    result.UsedHalfLengthMm = flatHalfFt / FeetPerMm;
+                    DebugLogger.Log($"[CLASH-RESOLVER] flatHalf={flatHalfFt * 304.8:F1}mm + expand={expandFt * 304.8:F1}mm → splitOffset={splitOffset * 304.8:F1}mm");
                 }
 
                 // Parametric positions along A's axis (from pt1)
                 double totalLength = pt1.DistanceTo(pt2);
                 double tCenter     = (ptOnA - pt1).DotProduct(dirA);
-                double t1 = tCenter - splitOffset - expandFt;
-                double t2 = tCenter + splitOffset + expandFt;
+                double t1 = tCenter - splitOffset;
+                double t2 = tCenter + splitOffset;
+
+                DebugLogger.Log($"[CLASH-RESOLVER] tCenter={tCenter * 304.8:F1}mm (totalLength={totalLength * 304.8:F1}mm)");
 
                 // Clamp to safe range away from pipe endpoints
                 t1 = Math.Max(minSegmentFt, Math.Min(t1, totalLength - minSegmentFt));
@@ -600,6 +730,30 @@ namespace ClashResolve.Module.Core
                 DebugLogger.Log($"[MULTI-RESOLVER] ElemA kind: {kindA}, radius={radiusA * 304.8:F1}mm");
 
                 // -------------------------------------------------------
+                // Lookup table override (applied before auto-formula logic)
+                // -------------------------------------------------------
+                if (pair.UseTable)
+                {
+                    double sizeMm = GetNominalSizeMm(elemA, kindA, radiusA);
+                    double? tableDropMm = ClashLookupService.Instance.LookupDrop(kindA, sizeMm, pair.AngleDegrees);
+                    double? tableSegMm  = ClashLookupService.Instance.LookupSegment(kindA, sizeMm, pair.AngleDegrees);
+                    DebugLogger.Log($"[MULTI-RESOLVER] Lookup: kind={kindA} sizeMm={sizeMm:F1} angle={pair.AngleDegrees:F0}° drop={tableDropMm?.ToString("F0") ?? "null"} seg={tableSegMm?.ToString("F0") ?? "null"}");
+
+                    if (tableDropMm.HasValue)
+                    {
+                        pair.AutoClearance = false;
+                        pair.ClearanceMm   = tableDropMm.Value;
+                        DebugLogger.Log($"[MULTI-RESOLVER] Lookup drop override: {tableDropMm.Value:F0}mm");
+                    }
+                    if (tableSegMm.HasValue)
+                    {
+                        pair.AutoHalfLength = false;
+                        pair.HalfLengthMm   = tableSegMm.Value / 2.0;
+                        DebugLogger.Log($"[MULTI-RESOLVER] Lookup segment override: {tableSegMm.Value:F0}mm (half={pair.HalfLengthMm:F0}mm)");
+                    }
+                }
+
+                // -------------------------------------------------------
                 // B. Find all intersecting B pipes, compute outermost t values
                 //    and the deepest required drop.
                 // -------------------------------------------------------
@@ -691,11 +845,15 @@ namespace ClashResolve.Module.Core
                 double halfLengthMultiplierM = isAngledMulti ? 3.0 : 2.5;
                 if (kindA == MepKind.RectDuct && !isAngledMulti)
                     halfLengthMultiplierM = 6.0;
+                if (kindA == MepKind.RectDuct && isAngledMulti)
+                    halfLengthMultiplierM = 6.0; // same as 90° — rect duct fittings need more room
+                if (kindA == MepKind.Pipe && isAngledMulti)
+                    halfLengthMultiplierM = 1.5; // reduced: was 3.0 + 1D bonus
 
                 double effectiveHalfLengthMm = pair.AutoHalfLength
                     ? Math.Ceiling(radiusA * halfLengthMultiplierM * 304.8)
                     : pair.HalfLengthMm;
-                if (kindA == MepKind.Pipe && pair.AutoHalfLength)
+                if (kindA == MepKind.Pipe && pair.AutoHalfLength && !isAngledMulti)
                     effectiveHalfLengthMm += radiusA * 2.0 * 304.8;
 
                 double splitOffset = effectiveHalfLengthMm * FeetPerMm;
@@ -703,21 +861,20 @@ namespace ClashResolve.Module.Core
                     ? Math.Abs(dropZFinal) / Math.Tan(pair.AngleDegrees * Math.PI / 180.0)
                     : 0.0;
 
-                // Guarantee splitOffset > expandFt so trimmed middle segment is never zero.
-                if (isAngledMulti && pair.AutoHalfLength)
+                // For angled mode: splitOffset = flatHalf + expandFt
+                // so the flat section equals effectiveHalfLengthMm (or at least 2 diameters).
+                if (isAngledMulti)
                 {
-                    double minSafeHalfFt = radiusA;
-                    if (splitOffset < expandFt + minSafeHalfFt)
-                    {
-                        splitOffset = expandFt + minSafeHalfFt;
-                        DebugLogger.Log($"[MULTI-RESOLVER] splitOffset clamped to {splitOffset * 304.8:F1}mm (expandFt={expandFt * 304.8:F1}mm + minSafe={minSafeHalfFt * 304.8:F1}mm)");
-                    }
+                    double minFlatHalfFt = 2.0 * radiusA; // at least 1 diameter flat each side
+                    double flatHalfFt    = Math.Max(splitOffset, minFlatHalfFt);
+                    splitOffset = flatHalfFt + expandFt;
+                    DebugLogger.Log($"[MULTI-RESOLVER] flatHalf={flatHalfFt * 304.8:F1}mm + expand={expandFt * 304.8:F1}mm → splitOffset={splitOffset * 304.8:F1}mm");
                 }
 
                 double minSegmentFt = 0.15;
 
-                double t1split = tMin - splitOffset - expandFt;
-                double t2split = tMax + splitOffset + expandFt;
+                double t1split = tMin - splitOffset;
+                double t2split = tMax + splitOffset;
 
                 t1split = Math.Max(minSegmentFt, Math.Min(t1split, totalLen - minSegmentFt));
                 t2split = Math.Max(minSegmentFt, Math.Min(t2split, totalLen - minSegmentFt));
@@ -873,8 +1030,13 @@ namespace ClashResolve.Module.Core
                 {
                     if (isAngledC)
                     {
-                        double angleMult = GetRectDuctAngledClearanceMult(pair.AngleDegrees);
-                        baseClearanceMm = Math.Ceiling(radiusA * angleMult * 304.8);
+                        // Same formula as ResolveClash: ensure diagonal >= 5×width after elbow insertion.
+                        double radiusA_mmC = radiusA * 304.8;
+                        double radiusB_mmC = radiusB * 304.8;
+                        double minDiagMmC  = 5.0 * (2.0 * radiusA_mmC);
+                        double sinAngleC   = Math.Sin(pair.AngleDegrees * Math.PI / 180.0);
+                        double minShiftMmC = minDiagMmC * sinAngleC;
+                        baseClearanceMm    = Math.Max(50.0, minShiftMmC - radiusA_mmC - radiusB_mmC);
                     }
                     else
                     {
@@ -886,7 +1048,8 @@ namespace ClashResolve.Module.Core
                     baseClearanceMm = isAngledC
                         ? 50.0
                         : Math.Ceiling(Math.Max(radiusA, radiusB) * 3.5 * 304.8);
-                    if (kindA == MepKind.Pipe)
+                    // Pipe diameter bonus only in 90° (vertical) mode
+                    if (kindA == MepKind.Pipe && !isAngledC)
                         baseClearanceMm += radiusA * 2.0 * 304.8;
                 }
 
@@ -894,8 +1057,10 @@ namespace ClashResolve.Module.Core
 
                 if (!pair.BypassUp)
                 {
-                    // Bypass down: check if B is above A and fittings might clip it
-                    bool   bIsAboveA        = pipeBAxisZ_check > ptOnA.Z;
+                    // Bypass down: check if B is above A and fittings might clip it.
+                    // Extra clearance only when B sits clearly above A (not just coplanar intersection).
+                    double clearanceGapMm2 = (pipeBAxisZ_check - ptOnA.Z) * 304.8;
+                    bool   bIsAboveA        = clearanceGapMm2 > (radiusA + radiusB) * 304.8;
                     double extraClearanceMm = 0.0;
                     if (bIsAboveA)
                     {
@@ -915,6 +1080,19 @@ namespace ClashResolve.Module.Core
             else
             {
                 effectiveClearanceMm = pair.ClearanceMm;
+            }
+
+            // For RectDuct angled bypass, enforce minimum clearance regardless of manual/auto mode.
+            bool isAngledEnforce = Math.Abs(pair.AngleDegrees - 90.0) > 0.5;
+            if (kindA == MepKind.RectDuct && isAngledEnforce)
+            {
+                double rAmm2    = radiusA * 304.8;
+                double rBmm2    = radiusB * 304.8;
+                double minDiag2 = 5.0 * (2.0 * rAmm2);
+                double sinA2    = Math.Sin(pair.AngleDegrees * Math.PI / 180.0);
+                double minClearance2 = Math.Max(50.0, minDiag2 * sinA2 - rAmm2 - rBmm2);
+                if (effectiveClearanceMm < minClearance2)
+                    effectiveClearanceMm = minClearance2;
             }
 
             double clearanceFeet = effectiveClearanceMm * FeetPerMm;
@@ -1000,7 +1178,13 @@ namespace ClashResolve.Module.Core
         /// Find the point on Line(a1→a2) that is closest to Line(b1→b2).
         /// Works for both intersecting and skew lines.
         /// </summary>
-        private XYZ GetClosestPointOnLine(XYZ a1, XYZ a2, XYZ b1, XYZ b2)
+        /// <summary>
+        /// Returns the closest point on line A (a1→a2) to line B (b1→b2).
+        /// When clamped=true the result is constrained to the segment [a1,a2].
+        /// When clamped=false the full infinite line is used (for finding true intersection).
+        /// </summary>
+        private XYZ GetClosestPointOnLine(XYZ a1, XYZ a2, XYZ b1, XYZ b2,
+                                           bool clamped = true)
         {
             XYZ d1 = (a2 - a1);
             XYZ d2 = (b2 - b1);
@@ -1037,8 +1221,8 @@ namespace ClashResolve.Module.Core
                 }
             }
 
-            // Clamp t to [0, 1] so point stays within segment A
-            t = Math.Max(0.0, Math.Min(1.0, t));
+            if (clamped)
+                t = Math.Max(0.0, Math.Min(1.0, t));
             return a1 + d1.Multiply(t);
         }
 
@@ -1315,11 +1499,22 @@ namespace ClashResolve.Module.Core
                 // Elbow at top: horizontal ↔ diagonal
                 try
                 {
+                    // Log horizontal segment endpoints before elbow insertion
+                    if (TryGetAxisAndRadius(mepH, out XYZ hS0, out XYZ hE0, out _))
+                        DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed: horiz BEFORE top-elbow: ({hS0.X*304.8:F1},{hS0.Y*304.8:F1},{hS0.Z*304.8:F1})->({hE0.X*304.8:F1},{hE0.Y*304.8:F1},{hE0.Z*304.8:F1})");
+                    if (TryGetAxisAndRadius(diagSeg, out XYZ dS0, out XYZ dE0, out _))
+                        DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed: diag  BEFORE top-elbow: ({dS0.X*304.8:F1},{dS0.Y*304.8:F1},{dS0.Z*304.8:F1})->({dE0.X*304.8:F1},{dE0.Y*304.8:F1},{dE0.Z*304.8:F1})");
+
                     Element elbowTop = doc.Create.NewElbowFitting(connH, diagTop);
                     if (elbowTop != null)
                     {
                         result.CreatedElements.Add(elbowTop.Id);
                         DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed: top elbow {elbowTop.Id}");
+                        // Log positions after top-elbow insertion to detect repositioning
+                        if (TryGetAxisAndRadius(mepH, out XYZ hS1, out XYZ hE1, out _))
+                            DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed: horiz AFTER  top-elbow: ({hS1.X*304.8:F1},{hS1.Y*304.8:F1},{hS1.Z*304.8:F1})->({hE1.X*304.8:F1},{hE1.Y*304.8:F1},{hE1.Z*304.8:F1})");
+                        if (TryGetAxisAndRadius(diagSeg, out XYZ dS1, out XYZ dE1, out _))
+                            DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed: diag  AFTER  top-elbow: ({dS1.X*304.8:F1},{dS1.Y*304.8:F1},{dS1.Z*304.8:F1})->({dE1.X*304.8:F1},{dE1.Y*304.8:F1},{dE1.Z*304.8:F1})");
                     }
                 }
                 catch (Exception ex) { DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed top elbow failed: {ex.Message}"); ok = false; }
@@ -1327,11 +1522,25 @@ namespace ClashResolve.Module.Core
                 // Elbow at bottom: diagonal ↔ middle
                 try
                 {
+                    // Log middle segment endpoints before bottom elbow insertion
+                    if (TryGetAxisAndRadius(mepM, out XYZ mS0, out XYZ mE0, out _))
+                        DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed: mid   BEFORE bot-elbow: ({mS0.X*304.8:F1},{mS0.Y*304.8:F1},{mS0.Z*304.8:F1})->({mE0.X*304.8:F1},{mE0.Y*304.8:F1},{mE0.Z*304.8:F1})");
+                    if (TryGetAxisAndRadius(diagSeg, out XYZ dS2, out XYZ dE2, out _))
+                        DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed: diag  BEFORE bot-elbow: ({dS2.X*304.8:F1},{dS2.Y*304.8:F1},{dS2.Z*304.8:F1})->({dE2.X*304.8:F1},{dE2.Y*304.8:F1},{dE2.Z*304.8:F1})");
+
+                    // Re-fetch connectors after top-elbow repositioning
+                    diagBot = GetOpenEndClosestTo(diagSeg, ptM);
+                    connM   = GetOpenEndClosestTo(mepM, GetCenter(mepH));
+
                     Element elbowBot = doc.Create.NewElbowFitting(diagBot, connM);
                     if (elbowBot != null)
                     {
                         result.CreatedElements.Add(elbowBot.Id);
                         DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed: bottom elbow {elbowBot.Id}");
+                        if (TryGetAxisAndRadius(mepM, out XYZ mS1, out XYZ mE1, out _))
+                            DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed: mid   AFTER  bot-elbow: ({mS1.X*304.8:F1},{mS1.Y*304.8:F1},{mS1.Z*304.8:F1})->({mE1.X*304.8:F1},{mE1.Y*304.8:F1},{mE1.Z*304.8:F1})");
+                        if (TryGetAxisAndRadius(diagSeg, out XYZ dS3, out XYZ dE3, out _))
+                            DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed: diag  AFTER  bot-elbow: ({dS3.X*304.8:F1},{dS3.Y*304.8:F1},{dS3.Z*304.8:F1})->({dE3.X*304.8:F1},{dE3.Y*304.8:F1},{dE3.Z*304.8:F1})");
                     }
                 }
                 catch (Exception ex) { DebugLogger.Log($"[CLASH-RESOLVER] Connect45Fixed bottom elbow failed: {ex.Message}"); ok = false; }

@@ -114,17 +114,53 @@ namespace PluginsManager.Commands
                 }
                 else if (vk == VK_RETURN)
                 {
-                    DebugLogger.Log("[MULTI-SESSION] Enter pressed — triggering Done");
-                    var ctrl = _optionsBarWpfControl;
-                    var dispatcher = System.Windows.Application.Current?.Dispatcher
-                        ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
-                    dispatcher.BeginInvoke(new Action(() =>
+                    // Do not intercept Enter if ClashLookupWindow has keyboard focus.
+                    // Type name check via reflection (no direct assembly reference).
+                    bool lookupWindowFocused = false;
+                    try
                     {
-                        var m = ctrl?.GetType().GetMethod("TriggerDone",
-                            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                        m?.Invoke(ctrl, null);
-                    }), System.Windows.Threading.DispatcherPriority.Normal);
-                    return (IntPtr)1;
+                        var dispatcher = System.Windows.Application.Current?.Dispatcher
+                            ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+                        dispatcher.Invoke(() =>
+                        {
+                            var focused = System.Windows.Input.Keyboard.FocusedElement;
+                            if (focused != null)
+                            {
+                                var dep = focused as System.Windows.DependencyObject;
+                                while (dep != null)
+                                {
+                                    string typeName = dep.GetType().Name;
+                                    if (typeName == "ClashLookupWindow")
+                                    {
+                                        lookupWindowFocused = true;
+                                        break;
+                                    }
+                                    dep = System.Windows.Media.VisualTreeHelper.GetParent(dep)
+                                          ?? System.Windows.LogicalTreeHelper.GetParent(dep);
+                                }
+                            }
+                        }, System.Windows.Threading.DispatcherPriority.Send);
+                    }
+                    catch { }
+
+                    if (lookupWindowFocused)
+                    {
+                        DebugLogger.Log("[MULTI-SESSION] Enter pressed inside ClashLookupWindow — not intercepting");
+                    }
+                    else
+                    {
+                        DebugLogger.Log("[MULTI-SESSION] Enter pressed — triggering Done");
+                        var ctrl = _optionsBarWpfControl;
+                        var dispatcher = System.Windows.Application.Current?.Dispatcher
+                            ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+                        dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            var m = ctrl?.GetType().GetMethod("TriggerDone",
+                                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                            m?.Invoke(ctrl, null);
+                        }), System.Windows.Threading.DispatcherPriority.Normal);
+                        return (IntPtr)1;
+                    }
                 }
             }
             return CallNextHookEx(_llHook, nCode, wParam, lParam);
@@ -560,6 +596,7 @@ namespace PluginsManager.Commands
             double halfLength  = (double)pt.GetProperty("HalfLengthMm").GetValue(paramsObj);
             bool autoHalf      = (bool)pt.GetProperty("AutoHalfLength").GetValue(paramsObj);
             bool bypassUp      = (bool)pt.GetProperty("BypassUp").GetValue(paramsObj);
+            bool useTable      = (bool)pt.GetProperty("UseTable").GetValue(paramsObj);
 
             var pipeAIds = new List<ElementId>(_pipeAIds);
             var pipeBIds = new List<ElementId>(_pipeBIds);
@@ -599,6 +636,7 @@ namespace PluginsManager.Commands
                         multiPairType.GetProperty("AutoHalfLength").SetValue(multiPair, autoHalf);
                         multiPairType.GetProperty("AngleDegrees").SetValue(multiPair, angleDeg);
                         multiPairType.GetProperty("BypassUp").SetValue(multiPair, bypassUp);
+                        multiPairType.GetProperty("UseTable").SetValue(multiPair, useTable);
 
                         var resolveMethod = resolverType.GetMethod("ResolveClashMultiB");
                         var result = resolveMethod.Invoke(resolver, new object[] { doc, multiPair });

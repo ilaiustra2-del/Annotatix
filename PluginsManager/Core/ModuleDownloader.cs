@@ -260,5 +260,78 @@ namespace PluginsManager.Core
             
             return toDownload;
         }
+
+        /// <summary>
+        /// Known module folder names that are managed by the plugin.
+        /// Only these folders will be considered for cleanup.
+        /// </summary>
+        private static readonly HashSet<string> KnownModuleFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "dwg2rvt", "hvac", "family_sync", "autonumbering", "clash_resolve", "annotatix"
+        };
+
+        /// <summary>
+        /// Folders inside annotatix_dependencies that must never be deleted.
+        /// </summary>
+        private static readonly HashSet<string> ProtectedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "main", "logs"
+        };
+
+        /// <summary>
+        /// Removes module folders that are present on disk but not in the user's authorized module list.
+        /// Only known module folders are affected; system folders (main, logs) are never touched.
+        /// </summary>
+        /// <param name="authorizedModuleTags">Module tags the user is authorized to use (e.g. "clash_resolve").</param>
+        /// <returns>List of module tags whose folders were deleted.</returns>
+        public List<string> CleanupUnauthorizedModules(IEnumerable<string> authorizedModuleTags)
+        {
+            var deleted = new List<string>();
+
+            try
+            {
+                if (!Directory.Exists(_annotatixDependenciesPath))
+                    return deleted;
+
+                // Build a normalized set of authorized tags
+                var authorized = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var tag in authorizedModuleTags)
+                    authorized.Add(tag);
+
+                foreach (var dir in Directory.GetDirectories(_annotatixDependenciesPath))
+                {
+                    string folderName = Path.GetFileName(dir);
+
+                    // Never touch protected system folders
+                    if (ProtectedFolders.Contains(folderName))
+                        continue;
+
+                    // Only clean up known module folders to avoid accidental deletions
+                    if (!KnownModuleFolders.Contains(folderName))
+                        continue;
+
+                    // If this module is NOT in the user's authorized list — delete the folder
+                    if (!authorized.Contains(folderName))
+                    {
+                        try
+                        {
+                            Directory.Delete(dir, recursive: true);
+                            deleted.Add(folderName);
+                            DebugLogger.Log($"[MODULE-DOWNLOADER] Deleted unauthorized module folder: {folderName}");
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.Log($"[MODULE-DOWNLOADER] Failed to delete folder {folderName}: {ex.Message}");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[MODULE-DOWNLOADER] CleanupUnauthorizedModules error: {ex.Message}");
+            }
+
+            return deleted;
+        }
     }
 }

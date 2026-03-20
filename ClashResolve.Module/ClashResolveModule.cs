@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using Autodesk.Revit.UI;
 using PluginsManager.Core;
+using ClashResolve.Module.Core;
 
 namespace ClashResolve.Module
 {
@@ -19,6 +20,10 @@ namespace ClashResolve.Module
         {
             DebugLogger.Log("[CLASHRESOLVE-MODULE] *** MODULE INITIALIZED ***");
             DebugLogger.Log("[CLASHRESOLVE-MODULE] ClashResolve module loaded with main plugin");
+
+            // Load persisted lookup tables and global-enable flag from JSON
+            ClashLookupService.Instance.Load();
+            DebugLogger.Log($"[CLASHRESOLVE-MODULE] LookupService loaded, GlobalEnabled={ClashLookupService.Instance.GlobalEnabled}");
         }
 
         public Window CreatePanel(object[] parameters)

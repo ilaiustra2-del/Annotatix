@@ -180,6 +180,10 @@ namespace PluginsManager.UI
                     // Download missing module files
                     await DownloadMissingModules(result.ModuleFiles);
                     
+                    // Remove module folders that are not in the user's authorized list
+                    var authorizedTags1 = result.Modules.Select(m => m.ModuleTag.ToLower());
+                    new Core.ModuleDownloader().CleanupUnauthorizedModules(authorizedTags1);
+                    
                     // Update UI
                     btnAuth.Content = "Выйти";
                     
@@ -603,6 +607,10 @@ namespace PluginsManager.UI
                 // Download missing modules
                 await DownloadMissingModules(currentUser.ModuleFiles);
                 
+                // Remove module folders that are not in the user's authorized list
+                var authorizedTags2 = currentUser.Modules.Select(m => m.ModuleTag.ToLower());
+                new Core.ModuleDownloader().CleanupUnauthorizedModules(authorizedTags2);
+                
                 // Update UI
                 ShowModulesInfo(currentUser.Modules);
                 
@@ -829,7 +837,8 @@ namespace PluginsManager.UI
                 }
                 else if (total > 0)
                 {
-                    MessageBox.Show("Не удалось загрузить файлы модулей.\n\nВозможные причины:\n- Отсутствует интернет-соединение\n- Файлы не загружены на сервер",
+                    var failedList = string.Join("\n", toDownload.Select(m => $"- {m.ModuleTag}"));
+                    MessageBox.Show($"Не удалось загрузить файлы модулей:\n{failedList}\n\nВозможные причины:\n- Отсутствует интернет-соединение\n- Файлы не загружены на сервер",
                         "Ошибка загрузки", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
@@ -878,6 +887,10 @@ namespace PluginsManager.UI
                     
                     // Download missing module files
                     await DownloadMissingModules(result.ModuleFiles);
+                    
+                    // Remove module folders that are not in the user's authorized list
+                    var authorizedTags3 = result.Modules.Select(m => m.ModuleTag.ToLower());
+                    new Core.ModuleDownloader().CleanupUnauthorizedModules(authorizedTags3);
                     
                     // Update modules info display
                     ShowModulesInfo(result.Modules);

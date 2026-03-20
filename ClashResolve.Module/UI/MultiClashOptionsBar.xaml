@@ -374,6 +374,26 @@
                     VerticalAlignment="Center"
                     Click="BtnCancel_Click"/>
 
+            <Rectangle Width="1" Fill="#666666" Margin="4,3"/>
+
+            <!-- Lookup table button + enable checkbox -->
+            <Button x:Name="btnLookupTable"
+                    Content="Таблицы параметров"
+                    Foreground="#E8E8E8"
+                    Background="#3A4A5A"
+                    BorderBrush="#557799"
+                    Padding="10,2"
+                    VerticalAlignment="Center"
+                    Margin="0,0,6,0"
+                    Click="BtnLookupTable_Click"/>
+            <CheckBox x:Name="chkUseTable"
+                      Content="Использовать"
+                      Foreground="#E8E8E8"
+                      VerticalAlignment="Center"
+                      ToolTip="Включить использование таблиц параметров вместо авто-расчёта"
+                      Checked="ChkUseTable_Changed"
+                      Unchecked="ChkUseTable_Changed"/>
+
         </StackPanel>
 
     </Grid>

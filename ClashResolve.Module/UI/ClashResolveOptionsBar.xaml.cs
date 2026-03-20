@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using MediaColor = System.Windows.Media.Color;
 using Autodesk.Revit.UI;
 using PluginsManager.Core;
+using ClashResolve.Module.Core;
 
 namespace ClashResolve.Module.UI
 {
@@ -35,6 +36,9 @@ namespace ClashResolve.Module.UI
             chkAutoLength.Checked      += ChkAuto_Changed;
             chkAutoLength.Unchecked    += ChkAuto_Changed;
             ApplyAutoState();
+
+            // Restore UseTable state from persisted service
+            chkUseTable.IsChecked = ClashLookupService.Instance.GlobalEnabled;
         }
 
         // ----------------------------------------------------------------
@@ -166,12 +170,27 @@ namespace ClashResolve.Module.UI
                 AutoClearance  = autoClearance,
                 HalfLengthMm   = segmentLengthMm / 2.0,  // halved before passing to ClashPair
                 AutoHalfLength = autoLength,
-                BypassUp       = bypassUp
+                BypassUp       = bypassUp,
+                UseTable       = chkUseTable.IsChecked == true
             });
         }
         private void BtnExit_Click(object sender, RoutedEventArgs e)
         {
             ExitRequested?.Invoke();
+        }
+
+        private void BtnLookupTable_Click(object sender, RoutedEventArgs e)
+        {
+            var win = ClashLookupWindow.GetOrCreate();
+            win.Show();
+            win.Activate();
+        }
+
+        private void ChkUseTable_Changed(object sender, RoutedEventArgs e)
+        {
+            bool enabled = chkUseTable.IsChecked == true;
+            // Persist globally so MultiClash bar and resolver pick it up too
+            ClashLookupService.Instance.GlobalEnabled = enabled;
         }
     }
 
@@ -185,5 +204,7 @@ namespace ClashResolve.Module.UI
         public bool   AutoHalfLength { get; set; }
         /// <summary>When true, pipe A bypasses pipe B from above.</summary>
         public bool   BypassUp       { get; set; }
+        /// <summary>When true, use lookup tables instead of formula-based auto calculation.</summary>
+        public bool   UseTable       { get; set; }
     }
 }

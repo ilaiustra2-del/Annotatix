@@ -118,17 +118,57 @@ namespace PluginsManager.Commands
                 }
                 else if (vk == VK_RETURN)
                 {
-                    DebugLogger.Log("[CLASH-SESSION] Enter pressed — triggering Resolve");
-                    var ctrl = _optionsBarWpfControl;
-                    var dispatcher = System.Windows.Application.Current?.Dispatcher
-                        ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
-                    dispatcher.BeginInvoke(new Action(() =>
+                    // Do not intercept Enter if ClashLookupWindow (or any of its owned windows)
+                    // currently has keyboard focus — let the DataGrid/TextBox handle it.
+                    // We check via WPF focus and window type name (no direct type reference
+                    // since PluginsManager does not reference ClashResolve.Module assembly).
+                    bool lookupWindowFocused = false;
+                    try
                     {
-                        var m = ctrl?.GetType().GetMethod("TriggerResolve",
-                            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                        m?.Invoke(ctrl, null);
-                    }), System.Windows.Threading.DispatcherPriority.Normal);
-                    return (IntPtr)1;
+                        var dispatcher = System.Windows.Application.Current?.Dispatcher
+                            ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+                        dispatcher.Invoke(() =>
+                        {
+                            var focused = System.Windows.Input.Keyboard.FocusedElement;
+                            if (focused != null)
+                            {
+                                // Walk up the visual/logical tree
+                                var dep = focused as System.Windows.DependencyObject;
+                                while (dep != null)
+                                {
+                                    string typeName = dep.GetType().Name;
+                                    if (typeName == "ClashLookupWindow")
+                                    {
+                                        lookupWindowFocused = true;
+                                        break;
+                                    }
+                                    dep = System.Windows.Media.VisualTreeHelper.GetParent(dep)
+                                          ?? System.Windows.LogicalTreeHelper.GetParent(dep);
+                                }
+                            }
+                        }, System.Windows.Threading.DispatcherPriority.Send);
+                    }
+                    catch { }
+
+                    if (lookupWindowFocused)
+                    {
+                        DebugLogger.Log("[CLASH-SESSION] Enter pressed inside ClashLookupWindow — not intercepting");
+                        // Pass key through so the DataGrid/TextBox handles it normally
+                    }
+                    else
+                    {
+                        DebugLogger.Log("[CLASH-SESSION] Enter pressed — triggering Resolve");
+                        var ctrl = _optionsBarWpfControl;
+                        var dispatcher = System.Windows.Application.Current?.Dispatcher
+                            ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+                        dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            var m = ctrl?.GetType().GetMethod("TriggerResolve",
+                                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                            m?.Invoke(ctrl, null);
+                        }), System.Windows.Threading.DispatcherPriority.Normal);
+                        return (IntPtr)1;
+                    }
                 }
             }
             return CallNextHookEx(_llHook, nCode, wParam, lParam);
@@ -702,6 +742,7 @@ namespace PluginsManager.Commands
             double halfLength  = (double)pt.GetProperty("HalfLengthMm").GetValue(paramsObj);
             bool autoHalf      = (bool)pt.GetProperty("AutoHalfLength").GetValue(paramsObj);
             bool bypassUp      = (bool)pt.GetProperty("BypassUp").GetValue(paramsObj);
+            bool useTable      = (bool)pt.GetProperty("UseTable").GetValue(paramsObj);
 
             // Schedule execution via ExternalEvent
             _execHandler.PendingAction = (app) =>
@@ -730,6 +771,7 @@ namespace PluginsManager.Commands
                 pairType.GetProperty("AutoHalfLength").SetValue(pair, autoHalf);
                 pairType.GetProperty("AngleDegrees").SetValue(pair, angleDeg);
                 pairType.GetProperty("BypassUp").SetValue(pair, bypassUp);
+                pairType.GetProperty("UseTable").SetValue(pair, useTable);
 
                 var resolveMethod = resolverType.GetMethod("ResolveClash");
                 var result = resolveMethod.Invoke(resolver, new object[] { doc, pair });
