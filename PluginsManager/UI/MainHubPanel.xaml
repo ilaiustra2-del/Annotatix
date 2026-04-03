@@ -190,8 +190,26 @@
                                         </StackPanel>
                                     </Border>
                                     
-                                    <!-- Placeholder 1-4 -->
-                                    <Border Style="{StaticResource PluginCardDisabled}"/>
+                                    <!-- Tracer Plugin -->
+                                    <Border x:Name="pnlTracer"
+                                            Style="{StaticResource PluginCardDisabled}"
+                                            MouseLeftButtonUp="Tracer_Click">
+                                        <StackPanel>
+                                            <Image x:Name="imgTracerIcon"
+                                                   Width="64"
+                                                   Height="64"
+                                                   Margin="0,0,0,8"
+                                                   Stretch="Uniform"/>
+                                            <TextBlock Text="Tracer"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       Foreground="#333333"/>
+                                        </StackPanel>
+                                    </Border>
+                                    
+                                    <!-- Placeholder 1-3 -->
                                     <Border Style="{StaticResource PluginCardDisabled}"/>
                                     <Border Style="{StaticResource PluginCardDisabled}"/>
                                     <Border Style="{StaticResource PluginCardDisabled}"/>
@@ -247,6 +265,10 @@
                             <StackPanel x:Name="pnlLicenseInfo"
                                         Visibility="Collapsed"
                                         Margin="0,0,0,8">
+                                <TextBlock FontSize="12" Foreground="#666666" Margin="0,0,0,4">
+                                    <Run Text="Аккаунт: "/>
+                                    <Run x:Name="txtLogin" Text="" FontWeight="SemiBold" Foreground="#333333"/>
+                                </TextBlock>
                                 <TextBlock FontSize="12" Foreground="#666666">
                                     <Run Text="Лицензия: "/>
                                     <Run x:Name="txtPlan" Text="Pro Plan" FontWeight="SemiBold"/>
@@ -271,15 +293,25 @@
                                     Visibility="Collapsed"
                                     Click="BtnRefreshUserData_Click"
                                     Margin="0,8,0,0"/>
+                            
+                            <!-- Server Auth Checkbox -->
+                            <CheckBox x:Name="chkUseServerAuth"
+                                      Content="Авторизация через новый сервер"
+                                      FontSize="11"
+                                      Foreground="#555555"
+                                      Margin="0,10,0,0"
+                                      Checked="ChkUseServerAuth_Changed"
+                                      Unchecked="ChkUseServerAuth_Changed"
+                                      ToolTip="Запросы авторизации и загрузки модулей пойдут через локальный прокси-сервер (localhost:8000) вместо прямого обращения к Supabase"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
                 
                 <!-- News Section -->
-                <ScrollViewer Grid.Row="1"
-                              VerticalScrollBarVisibility="Auto"
-                              BorderBrush="#D0D0D0"
-                              BorderThickness="1,0,0,1">
+                <Border Grid.Row="1"
+                        BorderBrush="#D0D0D0"
+                        BorderThickness="1,0,0,1">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="16">
                         <TextBlock Text="Новости" 
                                    FontSize="14"
@@ -288,53 +320,44 @@
                                    Margin="0,0,0,12"/>
                         
                         <!-- News Item 1 -->
-                        <Border Background="#F9F9F9"
-                                BorderBrush="#E0E0E0"
-                                BorderThickness="1"
-                                CornerRadius="2"
-                                Padding="12"
-                                Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock Text="12.02.2026"
-                                           FontSize="10"
-                                           Foreground="#999999"
-                                           Margin="0,0,0,4"/>
-                                <TextBlock Text="Обновление v2.0"
-                                           FontSize="12"
-                                           FontWeight="SemiBold"
-                                           Foreground="#333333"
-                                           Margin="0,0,0,4"/>
-                                <TextBlock Text="Добавлена поддержка Revit 2025. Улучшена производительность модуля HVAC."
-                                           FontSize="11"
-                                           Foreground="#666666"
-                                           TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </Border>
-                        
+                        <StackPanel Margin="0,0,0,12">
+                            <TextBlock Text="12.02.2026"
+                                       FontSize="10"
+                                       Foreground="#999999"
+                                       Margin="0,0,0,2"/>
+                            <TextBlock Text="Обновление v2.0"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="#333333"
+                                       Margin="0,0,0,3"/>
+                            <TextBlock Text="Добавлена поддержка Revit 2025. Улучшена производительность модуля HVAC."
+                                       FontSize="11"
+                                       Foreground="#666666"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- Divider -->
+                        <Border BorderBrush="#E8E8E8" BorderThickness="0,0,0,1" Margin="0,0,0,12"/>
+
                         <!-- News Item 2 -->
-                        <Border Background="#F9F9F9"
-                                BorderBrush="#E0E0E0"
-                                BorderThickness="1"
-                                CornerRadius="2"
-                                Padding="12">
-                            <StackPanel>
-                                <TextBlock Text="05.02.2026"
-                                           FontSize="10"
-                                           Foreground="#999999"
-                                           Margin="0,0,0,4"/>
-                                <TextBlock Text="Новый плагин"
-                                           FontSize="12"
-                                           FontWeight="SemiBold"
-                                           Foreground="#333333"
-                                           Margin="0,0,0,4"/>
-                                <TextBlock Text="Скоро выйдет модуль Electra для работы с электросхемами."
-                                           FontSize="11"
-                                           Foreground="#666666"
-                                           TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </Border>
+                        <StackPanel>
+                            <TextBlock Text="05.02.2026"
+                                       FontSize="10"
+                                       Foreground="#999999"
+                                       Margin="0,0,0,2"/>
+                            <TextBlock Text="Новый плагин"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="#333333"
+                                       Margin="0,0,0,3"/>
+                            <TextBlock Text="Скоро выйдет модуль Electra для работы с электросхемами."
+                                       FontSize="11"
+                                       Foreground="#666666"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
+                </Border>
                 
                 <!-- Debug Section -->
                 <Border Grid.Row="2"

@@ -63,8 +63,21 @@ namespace PluginsManager.Commands
             {
                 _revitHwnd = _uiApp?.MainWindowHandle ?? IntPtr.Zero;
                 _llProc    = LowLevelKeyboardCallback;
-                using (var mod = Process.GetCurrentProcess().MainModule)
-                    _llHook = SetWindowsHookEx(WH_KEYBOARD_LL, _llProc, GetModuleHandle(mod.ModuleName), 0);
+
+                // Process.MainModule may throw on .NET 8 (Revit 2025);
+                // fall back to IntPtr.Zero which still works for global keyboard hook.
+                IntPtr hMod = IntPtr.Zero;
+                try
+                {
+                    using (var mod = Process.GetCurrentProcess().MainModule)
+                        hMod = GetModuleHandle(mod?.ModuleName);
+                }
+                catch (Exception modEx)
+                {
+                    DebugLogger.Log($"[MULTI-SESSION] MainModule access failed (Revit 2025?): {modEx.Message} — using IntPtr.Zero");
+                }
+
+                _llHook = SetWindowsHookEx(WH_KEYBOARD_LL, _llProc, hMod, 0);
 
                 DebugLogger.Log(_llHook != IntPtr.Zero
                     ? "[MULTI-SESSION] Keyboard hook installed"
@@ -278,7 +291,7 @@ namespace PluginsManager.Commands
                     SubscribeBarEvent("CancelRequested", nameof(OnCancelRequested));
 
                     bool injected = false;
-                    var (container, setContent, getContent, dialogBarFe) = FindOptionsBarContainer();
+                    var (container, setContent, getContent, dialogBarFe) = FindOptionsBarContainer(_uiApp?.MainWindowHandle ?? IntPtr.Zero);
                     if (container != null && setContent != null)
                     {
                         _optionsBarControl    = container;
@@ -389,10 +402,46 @@ namespace PluginsManager.Commands
         // ----------------------------------------------------------------
         // OptionsBar container finder (copy from ClashResolveSession)
         // ----------------------------------------------------------------
-        private static System.Windows.Window GetRevitMainWindow()
+        private static System.Windows.Window GetRevitMainWindow(IntPtr preferredHwnd = default)
         {
+            // 1. UIApplication.MainWindowHandle - most reliable across Revit versions
+            if (preferredHwnd != IntPtr.Zero)
+            {
+                try
+                {
+                    var src = HwndSource.FromHwnd(preferredHwnd);
+                    if (src?.RootVisual is System.Windows.Window wHwnd)
+                    {
+                        DebugLogger.Log($"[MULTI-SESSION] GetRevitMainWindow: found via UIApp HWND, type={wHwnd.GetType().Name}");
+                        return wHwnd;
+                    }
+                }
+                catch { }
+            }
+
+            // 2. Application.MainWindow - accept only if it has many children (real shell)
             var wpfMain = System.Windows.Application.Current?.MainWindow;
-            if (wpfMain != null) return wpfMain;
+            if (wpfMain != null)
+            {
+                var children = FindAllVisualChildren<System.Windows.FrameworkElement>(wpfMain);
+                if (children.Count > 50) return wpfMain;
+            }
+
+            // 3. Largest visible window
+            System.Windows.Window bestWindow = null;
+            int bestCount = 0;
+            if (System.Windows.Application.Current != null)
+            {
+                foreach (System.Windows.Window w in System.Windows.Application.Current.Windows)
+                {
+                    if (!w.IsVisible) continue;
+                    var cnt = FindAllVisualChildren<System.Windows.FrameworkElement>(w).Count;
+                    if (cnt > bestCount) { bestCount = cnt; bestWindow = w; }
+                }
+            }
+            if (bestWindow != null) return bestWindow;
+
+            // 4. Process.MainWindowHandle fallback
             try
             {
                 var handle = Process.GetCurrentProcess().MainWindowHandle;
@@ -403,21 +452,16 @@ namespace PluginsManager.Commands
                 }
             }
             catch { }
-            if (System.Windows.Application.Current != null)
-            {
-                foreach (System.Windows.Window w in System.Windows.Application.Current.Windows)
-                    if (w.IsVisible) return w;
-            }
             return null;
         }
 
         private static (System.Windows.DependencyObject container, Action<object> setContent,
             Func<object> getContent, System.Windows.FrameworkElement dialogBarFe)
-            FindOptionsBarContainer()
+            FindOptionsBarContainer(IntPtr revitHwnd = default)
         {
             try
             {
-                var mainWin = GetRevitMainWindow();
+                var mainWin = GetRevitMainWindow(revitHwnd);
                 if (mainWin == null) return (null, null, null, null);
 
                 var allElements = FindAllVisualChildren<System.Windows.FrameworkElement>(mainWin);

@@ -35,10 +35,22 @@ namespace PluginsManager.UI
         private ExternalEvent _clashResolvePickBEvent;
         private Commands.ClashResolvePickBHandler _clashResolvePickBHandler;
         
+        // Tracer ExternalEvents (created in constructor from IExternalCommand context)
+        private ExternalEvent _tracerSelectMainPipeEvent;
+        private Commands.TracerSelectMainPipeHandler _tracerSelectMainPipeHandler;
+        private ExternalEvent _tracerSelectRiserEvent;
+        private Commands.TracerSelectRiserHandler _tracerSelectRiserHandler;
+        private ExternalEvent _tracerCreateConnectionEvent;
+        private Commands.TracerCreateConnectionHandler _tracerCreateConnectionHandler;
+        private ExternalEvent _tracerCreateLConnectionEvent;
+        private Commands.TracerCreateLConnectionHandler _tracerCreateLConnectionHandler;
+        
         // Cache for module panels to avoid recreating them
         private object _familySyncPanelContent;
         private object _autoNumberingPanelContent;
         private object _clashResolvePanelContent;
+        private object _tracerPanelContent;
+        private static bool _moduleNotificationsShown = false; // show unknown/missing module warnings only once per session
 
         public MainHubPanel(UIApplication uiApp)
         {
@@ -73,6 +85,18 @@ namespace PluginsManager.UI
             _clashResolvePickBEvent = ExternalEvent.Create(_clashResolvePickBHandler);
             System.Diagnostics.Debug.WriteLine("[HUB] ClashResolve ExternalEvents created in constructor");
             
+            // Create ExternalEvents for Tracer
+            // Created HERE (in constructor from IExternalCommand context) to avoid API context errors
+            _tracerSelectMainPipeHandler = new Commands.TracerSelectMainPipeHandler();
+            _tracerSelectMainPipeEvent = ExternalEvent.Create(_tracerSelectMainPipeHandler);
+            _tracerSelectRiserHandler = new Commands.TracerSelectRiserHandler();
+            _tracerSelectRiserEvent = ExternalEvent.Create(_tracerSelectRiserHandler);
+            _tracerCreateConnectionHandler = new Commands.TracerCreateConnectionHandler();
+            _tracerCreateConnectionEvent = ExternalEvent.Create(_tracerCreateConnectionHandler);
+            _tracerCreateLConnectionHandler = new Commands.TracerCreateLConnectionHandler();
+            _tracerCreateLConnectionEvent = ExternalEvent.Create(_tracerCreateLConnectionHandler);
+            System.Diagnostics.Debug.WriteLine("[HUB] Tracer ExternalEvents created in constructor");
+            
             // Register this panel with the commands so they can update UI
             Commands.OpenDwg2rvtPanelCommand.SetHubPanel(this);
             Commands.OpenHvacPanelCommand.SetHubPanel(this);
@@ -95,6 +119,9 @@ namespace PluginsManager.UI
                 
                 // Load FamilySync icon
                 LoadIcon(Path.Combine(iconsPath, "familysync80.png"), imgFamilySyncIcon);
+                
+                // Load Tracer icon
+                LoadIcon(Path.Combine(iconsPath, "tracer80.png"), imgTracerIcon);
             }
             catch (Exception ex)
             {
@@ -155,6 +182,19 @@ namespace PluginsManager.UI
         {
             try
             {
+                // If already authenticated (window reopened) — skip server roundtrip,
+                // just re-apply the cached user data to UI.
+                if (Core.AuthService.CurrentUser != null && Core.AuthService.CurrentUser.IsSuccess)
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] Already authenticated, reusing cached user data");
+                    var cached = Core.AuthService.CurrentUser;
+                    btnAuth.Content = "Выйти";
+                    ShowModulesInfo(cached.Modules);
+                    btnRefreshUserData.Visibility = Visibility.Visible;
+                    ActivateModuleButtons(cached.Modules);
+                    return;
+                }
+
                 // Check if there are saved credentials
                 if (!Core.LocalAuthStorage.HasSavedAuth())
                 {
@@ -212,6 +252,21 @@ namespace PluginsManager.UI
         // REMOVED: Window_Close - Close button removed from UI
         
         /// <summary>
+        /// Checkbox handler: toggle proxy server auth mode.
+        /// </summary>
+        private void ChkUseServerAuth_Changed(object sender, RoutedEventArgs e)
+        {
+            bool enabled = chkUseServerAuth.IsChecked == true;
+            Core.AuthService.UseServerAuth = enabled;
+            System.Diagnostics.Debug.WriteLine($"[HUB] UseServerAuth set to: {enabled}");
+            
+            // Update status bar hint
+            txtStatusLeft.Text = enabled
+                ? "Авторизация через локальный сервер"
+                : "Готов к работе";
+        }
+        
+        /// <summary>
         /// Load an icon from file to an Image control
         /// </summary>
         private void LoadIcon(string iconPath, System.Windows.Controls.Image imageControl)
@@ -261,16 +316,40 @@ namespace PluginsManager.UI
         
         private void BtnModulesInfo_Click(object sender, RoutedEventArgs e)
         {
-            // Show modules info
             var info = "Установленные модули:\n\n";
             
             if (Core.AuthService.CurrentUser != null && Core.AuthService.CurrentUser.Modules != null)
             {
+                // Known module tags that this build supports
+                var knownTags = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+                    { "dwg2rvt", "hvac", "family_sync", "autonumbering", "clash_resolve", "full" };
+                
+                // Get modules base path for installed check
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var modulesPath = Path.GetDirectoryName(Path.GetDirectoryName(assembly.Location));
+                
                 foreach (var module in Core.AuthService.CurrentUser.Modules)
                 {
                     info += $"• {module.ModuleTag}\n";
                     info += $"  Активен: {(module.IsActive ? "Да" : "Нет")}\n";
-                    info += $"  Период: {module.StartDate:dd.MM.yyyy} - {module.EndDate:dd.MM.yyyy}\n\n";
+                    info += $"  Период: {module.StartDate:dd.MM.yyyy} - {module.EndDate:dd.MM.yyyy}\n";
+                    
+                    // Check if installed on disk
+                    bool isKnown = knownTags.Contains(module.ModuleTag);
+                    bool isInstalled = false;
+                    if (isKnown && module.ModuleTag.ToLower() != "full")
+                    {
+                        string tag = module.ModuleTag.ToLower();
+                        string dllName = GetDllNameForTag(tag);
+                        if (!string.IsNullOrEmpty(dllName))
+                            isInstalled = File.Exists(Path.Combine(modulesPath, tag, dllName));
+                    }
+                    else if (!isKnown)
+                    {
+                        isInstalled = false; // unsupported in this build
+                    }
+                    
+                    info += $"  Загружен: {(isInstalled ? "Да" : "Нет")}\n\n";
                 }
             }
             else
@@ -279,6 +358,22 @@ namespace PluginsManager.UI
             }
             
             MessageBox.Show(info, "Информация о модулях", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        /// <summary>
+        /// Returns DLL file name for a given module tag, or null for unknown/full.
+        /// </summary>
+        private static string GetDllNameForTag(string tag)
+        {
+            switch (tag)
+            {
+                case "dwg2rvt":       return "dwg2rvt.Module.dll";
+                case "hvac":          return "HVAC.Module.dll";
+                case "family_sync":   return "FamilySync.Module.dll";
+                case "autonumbering": return "AutoNumbering.Module.dll";
+                case "clash_resolve": return "ClashResolve.Module.dll";
+                default:              return null;
+            }
         }
         
         // REMOVED: LoadFamilySyncModule() - now loaded dynamically after authentication
@@ -565,6 +660,85 @@ namespace PluginsManager.UI
                     "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+        
+        private void Tracer_Click(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                Core.DebugLogger.Log("");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("[HUB] User clicked Tracer button");
+                
+                // Check if panel already created (cached)
+                if (_tracerPanelContent != null)
+                {
+                    Core.DebugLogger.Log("[HUB] Using cached Tracer panel content");
+                    MainContent.Content = _tracerPanelContent;
+                    RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
+                    System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
+                    TitleBar.Visibility = System.Windows.Visibility.Visible;
+                    txtModuleTitle.Text = "Трассировка канализации";
+                    Core.DebugLogger.Log("[HUB] Tracer panel switched (from cache)");
+                    Core.DebugLogger.LogSeparator('-');
+                    Core.DebugLogger.Log("");
+                    return;
+                }
+                
+                Core.DebugLogger.Log("[HUB] Loading Tracer module panel (first time)...");
+                
+                var module = Core.DynamicModuleLoader.GetModuleInstance("tracer");
+                if (module == null)
+                {
+                    MessageBox.Show("Модуль Tracer не загружен. Проверьте наличие файла Tracer.Module.dll.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log($"[HUB] Module found: {module.ModuleName} v{module.ModuleVersion}");
+                
+                var panel = module.CreatePanel(new object[] {
+                    _uiApp,
+                    _tracerSelectMainPipeEvent,
+                    _tracerSelectRiserEvent,
+                    _tracerCreateConnectionEvent,
+                    _tracerCreateLConnectionEvent
+                });
+                if (panel == null)
+                {
+                    MessageBox.Show("Не удалось создать панель модуля Tracer.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log("[HUB] Panel created successfully");
+                
+                var panelContent = panel.Content;
+                if (panelContent == null)
+                {
+                    MessageBox.Show("Панель модуля не содержит контента.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                Core.DebugLogger.Log($"[HUB] Panel content type: {panelContent.GetType().Name}");
+                
+                _tracerPanelContent = panelContent;
+                Core.DebugLogger.Log("[HUB] Panel content cached for future use");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("");
+                
+                MainContent.Content = panelContent;
+                RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
+                System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
+                TitleBar.Visibility = System.Windows.Visibility.Visible;
+                txtModuleTitle.Text = "Трассировка канализации";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при загрузке панели Tracer:\n{ex.Message}\n\n{ex.StackTrace}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
 
         private async void BtnAuth_Click(object sender, RoutedEventArgs e)
         {
@@ -756,7 +930,11 @@ namespace PluginsManager.UI
             successMessage.Visibility = Visibility.Visible;
             pnlLicenseInfo.Visibility = Visibility.Visible;
             btnAuth.Content = "Выйти";
-            
+
+            // Show login (email)
+            if (Core.AuthService.CurrentUser != null)
+                txtLogin.Text = Core.AuthService.CurrentUser.Login ?? "";
+
             if (modules == null || modules.Count == 0)
             {
                 txtPlan.Text = "Free Plan";
@@ -953,6 +1131,7 @@ namespace PluginsManager.UI
             
             // Check for missing module files
             var missingModules = new List<string>();
+            var unknownModules = new List<string>();
             
             foreach (var module in modules)
             {
@@ -998,6 +1177,13 @@ namespace PluginsManager.UI
                         else
                             LoadAndActivateClashResolveModule(modulesPath);
                         break;
+                    
+                    case "tracer":
+                        if (!CheckModuleFilesExist(modulesPath, "tracer", "Tracer.Module.dll"))
+                            missingModules.Add("tracer");
+                        else
+                            LoadAndActivateTracerModule(modulesPath);
+                        break;
                         
                     case "full":
                         // Check all three modules
@@ -1006,6 +1192,7 @@ namespace PluginsManager.UI
                         bool familySyncExists = CheckModuleFilesExist(modulesPath, "family_sync", "FamilySync.Module.dll");
                         bool autoNumberingExists = CheckModuleFilesExist(modulesPath, "autonumbering", "AutoNumbering.Module.dll");
                         bool clashResolveExists = CheckModuleFilesExist(modulesPath, "clash_resolve", "ClashResolve.Module.dll");
+                        bool tracerExists = CheckModuleFilesExist(modulesPath, "tracer", "Tracer.Module.dll");
                         
                         if (!dwg2rvtExists)
                             missingModules.Add("dwg2rvt");
@@ -1031,32 +1218,55 @@ namespace PluginsManager.UI
                             missingModules.Add("clash_resolve");
                         else
                             LoadAndActivateClashResolveModule(modulesPath);
+                        
+                        if (!tracerExists)
+                            missingModules.Add("tracer");
+                        else
+                            LoadAndActivateTracerModule(modulesPath);
                             
-                        if (dwg2rvtExists && hvacExists && familySyncExists && autoNumberingExists && clashResolveExists)
+                        if (dwg2rvtExists && hvacExists && familySyncExists && autoNumberingExists && clashResolveExists && tracerExists)
                             System.Diagnostics.Debug.WriteLine("[HUB] All modules activated (full access)");
                         break;
                         
                     default:
-                        System.Diagnostics.Debug.WriteLine($"[HUB] Unknown module: {moduleTag}");
+                        // Unknown module tag (e.g. future modules not yet supported in this build).
+                        // Collect for a single deferred notification — do NOT spam per-module.
+                        System.Diagnostics.Debug.WriteLine($"[HUB] Unknown/unsupported module tag (ignored): {moduleTag}");
+                        unknownModules.Add(moduleTag);
                         break;
                 }
             }
             
-            // Show warning if any modules are missing
-            if (missingModules.Count > 0)
+            // Show warning if any modules are missing (DLL not on disk)
+            if (!_moduleNotificationsShown && missingModules.Count > 0)
             {
                 var message = "У вас отсутствуют файлы одного или нескольких модулей:\n";
                 foreach (var moduleName in missingModules)
-                {
                     message += $"- {moduleName}\n";
-                }
                 message += "\nОбратитесь в поддержку для получения необходимых файлов.";
-                
-                MessageBox.Show(message, "Отсутствуют файлы модулей", 
+                MessageBox.Show(message, "Отсутствуют файлы модулей",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
-                    
                 Core.DebugLogger.Log($"[HUB] WARNING: Missing module files: {string.Join(", ", missingModules)}");
             }
+
+            // Notify about modules that are in the subscription but failed to download
+            if (!_moduleNotificationsShown && unknownModules.Count > 0)
+            {
+                var msg = "В вашей подписке есть модули, которые не были загружены автоматически:\n";
+                foreach (var t in unknownModules)
+                    msg += $"- {t}\n";
+                msg += "\nВозможные причины возникновения проблемы:\n"
+                    + "  - отсутствует связь с сервером\n"
+                    + "  - подключение к интернету нестабильно\n"
+                    + "  - ошибка на стороне сервера\n\n"
+                    + "Попробуйте немного позже нажать кнопку \"Обновить данные\" на главной странице плагина.\n"
+                    + "Если проблема сохранится, обратитесь в поддержку.";
+                MessageBox.Show(msg, "Не удалось загрузить модули",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                Core.DebugLogger.Log($"[HUB] WARNING: Failed to load subscription modules: {string.Join(", ", unknownModules)}");
+            }
+
+            _moduleNotificationsShown = true;
             
             // Log loaded modules info
             Core.DebugLogger.Log("");
@@ -1278,6 +1488,33 @@ namespace PluginsManager.UI
             {
                 System.Diagnostics.Debug.WriteLine($"[HUB] Error loading ClashResolve module: {ex.Message}");
                 Core.DebugLogger.Log($"[HUB] ERROR: Failed to load ClashResolve module - {ex.Message}");
+            }
+        }
+        
+        private void LoadAndActivateTracerModule(string modulesPath)
+        {
+            try
+            {
+                var moduleDllPath = Path.Combine(modulesPath, "tracer", "Tracer.Module.dll");
+                System.Diagnostics.Debug.WriteLine($"[HUB] Loading Tracer module from: {moduleDllPath}");
+                
+                if (Core.DynamicModuleLoader.LoadModule("tracer", moduleDllPath))
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] Tracer module loaded successfully");
+                    
+                    pnlTracer.IsEnabled = true;
+                    pnlTracer.Opacity = 1.0;
+                    System.Diagnostics.Debug.WriteLine("[HUB] ✓ Tracer module loaded and activated");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] ✗ Failed to load Tracer module");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading Tracer module: {ex.Message}");
+                Core.DebugLogger.Log($"[HUB] ERROR: Failed to load Tracer module - {ex.Message}");
             }
         }
     }

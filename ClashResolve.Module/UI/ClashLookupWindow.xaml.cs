@@ -68,8 +68,19 @@ namespace ClashResolve.Module.UI
             string displayName = ClashLookupService.MepKindToDisplayName(mepType);
             var rows = new ObservableCollection<ClashLookupRow>(table.Rows);
 
+            // ---- Auto-fill checkbox (shared ref so DataGrid handler can read it) ----
+            var chkAutoFill = new CheckBox
+            {
+                Content             = "Автоматическое заполнение таблицы",
+                IsChecked           = true,
+                Foreground          = BrTextDim,
+                VerticalAlignment   = VerticalAlignment.Center,
+                Margin              = new Thickness(8, 0, 12, 0),
+                Cursor              = System.Windows.Input.Cursors.Hand
+            };
+
             // ---- DataGrid ----
-            var grid = BuildDataGrid(rows, mepType);
+            var grid = BuildDataGrid(rows, mepType, chkAutoFill);
 
             // ---- "Add row" button ----
             var btnAdd = MakeButton("+ Добавить типоразмер", BrBtn, BrBtnBdr);
@@ -109,15 +120,26 @@ namespace ClashResolve.Module.UI
             btnDel.Margin = new Thickness(8, 0, 0, 0);
             btnDel.Click += (s, e) => OnDeleteTable(mepType);
 
-            // ---- Bottom bar ----
-            var bottomBar = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
-            DockPanel.SetDock(btnDel,        Dock.Right);
-            DockPanel.SetDock(btnAdd,        Dock.Left);
+            // ---- Bottom bar: two rows ----
+            // Row 1: [+ Add] [AutoFill checkbox]       [Delete table]
+            // Row 2: ["При отсутствии типоразмера:"] [combo]
+
+            var row1 = new DockPanel { Margin = new Thickness(0, 6, 0, 2) };
+            DockPanel.SetDock(btnDel,      Dock.Right);
+            DockPanel.SetDock(btnAdd,      Dock.Left);
+            DockPanel.SetDock(chkAutoFill, Dock.Left);
+            row1.Children.Add(btnDel);
+            row1.Children.Add(btnAdd);
+            row1.Children.Add(chkAutoFill);
+
+            var row2 = new DockPanel { Margin = new Thickness(0, 0, 0, 0) };
             DockPanel.SetDock(fallbackLabel, Dock.Left);
-            bottomBar.Children.Add(btnDel);
-            bottomBar.Children.Add(btnAdd);
-            bottomBar.Children.Add(fallbackLabel);
-            bottomBar.Children.Add(fallbackCombo);
+            row2.Children.Add(fallbackLabel);
+            row2.Children.Add(fallbackCombo);
+
+            var bottomBar = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+            bottomBar.Children.Add(row1);
+            bottomBar.Children.Add(row2);
 
             var content = new DockPanel { Margin = new Thickness(4) };
             DockPanel.SetDock(bottomBar, Dock.Bottom);
@@ -137,7 +159,7 @@ namespace ClashResolve.Module.UI
         // ----------------------------------------------------------------
         // DataGrid with 2-row header
         // ----------------------------------------------------------------
-        private Grid BuildDataGrid(ObservableCollection<ClashLookupRow> rows, string mepType)
+        private Grid BuildDataGrid(ObservableCollection<ClashLookupRow> rows, string mepType, CheckBox chkAutoFill)
         {
             // Column widths
             double wSize  = 90;
@@ -206,6 +228,38 @@ namespace ClashResolve.Module.UI
             foreach (var field in fields)
                 dg.Columns.Add(MakeValueCol(field, wAngle));
 
+            // Delete-row button column (reuses the extra blank column on the right)
+            var delColFactory = new FrameworkElementFactory(typeof(Button));
+            delColFactory.SetValue(Button.ContentProperty, "×");
+            delColFactory.SetValue(Button.ForegroundProperty, new SolidColorBrush(Color.FromRgb(0xFF, 0x88, 0x88)));
+            delColFactory.SetValue(Button.BackgroundProperty, Brushes.Transparent);
+            delColFactory.SetValue(Button.BorderThicknessProperty, new Thickness(0));
+            delColFactory.SetValue(Button.FontSizeProperty, 13.0);
+            delColFactory.SetValue(Button.FontWeightProperty, FontWeights.Bold);
+            delColFactory.SetValue(Button.CursorProperty, System.Windows.Input.Cursors.Hand);
+            delColFactory.SetValue(Button.ToolTipProperty, "Удалить строку");
+            delColFactory.SetValue(Button.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            delColFactory.SetValue(Button.VerticalAlignmentProperty, VerticalAlignment.Center);
+            delColFactory.AddHandler(Button.ClickEvent, new RoutedEventHandler((btnSender, btnArgs) =>
+            {
+                var btn = btnSender as Button;
+                var rowItem = btn?.DataContext as ClashLookupRow;
+                if (rowItem != null)
+                {
+                    rows.Remove(rowItem);
+                    SyncAndSave(mepType, rows);
+                }
+            }));
+            var delCol = new DataGridTemplateColumn
+            {
+                Header = "",
+                Width  = 60,
+                CellTemplate = new DataTemplate { VisualTree = delColFactory },
+                CanUserResize = false,
+                CanUserSort   = false
+            };
+            dg.Columns.Add(delCol);
+
             // CellEditEnding: detect which field changed and handle auto-fill / manual-mark
             dg.CellEditEnding += (s, e) =>
             {
@@ -215,7 +269,7 @@ namespace ClashResolve.Module.UI
                 int colIdx = e.Column.DisplayIndex;
                 string editedField = colIdx == 0 ? "SizeMm" : fields[colIdx - 1];
 
-                // Commit the edit value first (it's still in the EditingElement)
+                // Capture new text from editing element before commit
                 string newText = "";
                 if (e.EditingElement is TextBox tb) newText = tb.Text?.Trim() ?? "";
 
@@ -223,8 +277,6 @@ namespace ClashResolve.Module.UI
                 {
                     if (editedField == "SizeMm")
                     {
-                        // Parse the typed value directly from the TextBox text (row.SizeMm
-                        // may not yet be committed when CellEditEnding fires).
                         if (!double.TryParse(newText,
                                 System.Globalization.NumberStyles.Any,
                                 System.Globalization.CultureInfo.CurrentCulture,
@@ -236,30 +288,49 @@ namespace ClashResolve.Module.UI
                                 out parsedSize);
                         }
 
-                        // If all value fields are still empty/auto — auto-calculate
-                        bool anyManual = row.AutoFlags.Any(kv => kv.Value == false);
-                        bool anyFilled = fields.Any(f => GetFieldValue(row, f) != null);
-                        if (!anyManual && !anyFilled && parsedSize > 0)
+                        bool autoFillEnabled = chkAutoFill.IsChecked == true;
+
+                        if (autoFillEnabled && parsedSize > 0)
                         {
+                            // Always recalculate the entire row when SizeMm changes
                             var calc = ClashLookupService.Instance.AutoCalculateRow(mepType, parsedSize);
-                            // Copy calculated values into the row
                             row.Drop30 = calc.Drop30; row.Drop45 = calc.Drop45;
                             row.Drop60 = calc.Drop60; row.Drop90 = calc.Drop90;
                             row.Seg30  = calc.Seg30;  row.Seg45  = calc.Seg45;
                             row.Seg60  = calc.Seg60;  row.Seg90  = calc.Seg90;
-                            row.AutoFlags = calc.AutoFlags; // all true
-                            // Commit any pending edit before refresh to avoid DataGrid crash
-                            dg.CommitEdit(DataGridEditingUnit.Row, true);
-                            dg.Items.Refresh();
+                            // Reset all flags to auto (white) since values are freshly calculated
+                            foreach (var f in fields) row.AutoFlags[f] = true;
                         }
+
+                        // Auto-sort by SizeMm ascending
+                        dg.CommitEdit(DataGridEditingUnit.Row, true);
+                        var sorted = rows.OrderBy(r => r.SizeMm).ToList();
+                        rows.Clear();
+                        foreach (var r in sorted) rows.Add(r);
+                        dg.Items.Refresh();
                     }
                     else
                     {
-                        // Mark this field as manually overridden
-                        row.AutoFlags[editedField] = false;
-                        // Commit any pending edit before refresh to avoid DataGrid crash
+                        // Mark as manual ONLY if value actually changed
+                        double? oldValue = GetFieldValue(row, editedField);
+                        double? newValue = null;
+                        if (double.TryParse(newText,
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.CurrentCulture,
+                                out double parsed))
+                            newValue = parsed;
+                        else if (double.TryParse(newText,
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                out double parsedInv))
+                            newValue = parsedInv;
+
+                        bool valueChanged = Math.Abs((oldValue ?? 0) - (newValue ?? 0)) > 0.001
+                                         || (oldValue == null) != (newValue == null);
+                        if (valueChanged)
+                            row.AutoFlags[editedField] = false;
+
                         dg.CommitEdit(DataGridEditingUnit.Row, true);
-                        // Refresh just the row to update text colour
                         dg.Items.Refresh();
                     }
                     SyncAndSave(mepType, rows);
@@ -270,7 +341,7 @@ namespace ClashResolve.Module.UI
             // headerGrid and DataGrid share the same column widths; both are placed in a
             // Grid so the DataGrid scrolls vertically while the header stays fixed.
             // Fix alignment: make headerGrid exactly as wide as the DataGrid columns.
-            double totalWidth = wSize + wAngle * 8;
+            double totalWidth = wSize + wAngle * 8 + 60; // +60 for delete column
             headerGrid.Width = totalWidth;
             headerGrid.HorizontalAlignment = HorizontalAlignment.Left;
 

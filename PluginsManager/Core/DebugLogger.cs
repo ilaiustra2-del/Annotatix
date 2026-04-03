@@ -13,9 +13,13 @@ namespace PluginsManager.Core
 
         static DebugLogger()
         {
-            // Log to annotatix_dependencies/logs folder
+            // Determine Revit version dynamically from the DLL path
+            // e.g. ...\Addins\2025\annotatix_dependencies\main\PluginsManager.dll → "2025"
+            string revitVersion = DetectRevitVersionFromDllPath();
+
+            // Log to annotatix_dependencies/logs folder under the correct Revit version
             string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string logFolder = Path.Combine(appDataPath, "Autodesk", "Revit", "Addins", "2024", "annotatix_dependencies", "logs");
+            string logFolder = Path.Combine(appDataPath, "Autodesk", "Revit", "Addins", revitVersion, "annotatix_dependencies", "logs");
             
             // Create logs folder if it doesn't exist
             try
@@ -102,6 +106,29 @@ namespace PluginsManager.Core
                 }
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Detects the Revit version (e.g. "2024", "2025") from this DLL's own path.
+        /// Path pattern: ...\Addins\{VERSION}\annotatix_dependencies\...
+        /// Falls back to "2024" if detection fails.
+        /// </summary>
+        private static string DetectRevitVersionFromDllPath()
+        {
+            try
+            {
+                string dllPath = typeof(DebugLogger).Assembly.Location;
+                // Walk up directories looking for one that is a 4-digit year
+                var dir = new System.IO.DirectoryInfo(Path.GetDirectoryName(dllPath));
+                while (dir != null)
+                {
+                    if (dir.Name.Length == 4 && int.TryParse(dir.Name, out int year) && year >= 2020 && year <= 2035)
+                        return dir.Name;
+                    dir = dir.Parent;
+                }
+            }
+            catch { }
+            return "2024"; // safe fallback
         }
     }
 }

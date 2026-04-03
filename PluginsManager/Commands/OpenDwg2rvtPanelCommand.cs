@@ -18,7 +18,10 @@ namespace PluginsManager.Commands
         private static ExternalEvent _annotateEvent;
         private static ExternalEvent _placeElementsEvent;
         private static ExternalEvent _placeSingleBlockTypeEvent;
+        private static ExternalEvent _placeAnnotationsEvent;
+        private static ExternalEvent _placeAnnotationsSingleEvent;
         private static object _placeSingleBlockTypeHandler; // Store as object to avoid circular reference
+        private static object _placeAnnotationsSingleHandler;
         
         // Store MainHubPanel reference to update it after panel creation
         private static UI.MainHubPanel _hubPanel;
@@ -85,7 +88,9 @@ namespace PluginsManager.Commands
                     var annotateHandlerType = moduleAssembly.GetType("dwg2rvt.Module.UI.dwg2rvtPanel+AnnotateEventHandler");
                     var placeElementsHandlerType = moduleAssembly.GetType("dwg2rvt.Module.UI.dwg2rvtPanel+PlaceElementsEventHandler");
                     var placeSingleHandlerType = moduleAssembly.GetType("dwg2rvt.Module.UI.dwg2rvtPanel+PlaceSingleBlockTypeEventHandler");
-                    
+                    var placeAnnotationsAllHandlerType = moduleAssembly.GetType("dwg2rvt.Module.UI.dwg2rvtPanel+PlaceAnnotationsAllEventHandler");
+                    var placeAnnotationsSingleHandlerType = moduleAssembly.GetType("dwg2rvt.Module.UI.dwg2rvtPanel+PlaceAnnotationsSingleEventHandler");
+
                     if (annotateHandlerType == null || placeElementsHandlerType == null || placeSingleHandlerType == null)
                     {
                         message = "Failed to find handler types in module";
@@ -97,14 +102,25 @@ namespace PluginsManager.Commands
                     var annotateHandler = Activator.CreateInstance(annotateHandlerType) as IExternalEventHandler;
                     var placeElementsHandler = Activator.CreateInstance(placeElementsHandlerType) as IExternalEventHandler;
                     var placeSingleHandler = Activator.CreateInstance(placeSingleHandlerType) as IExternalEventHandler;
-                    
+
                     // Store the placeSingleHandler for later access
                     _placeSingleBlockTypeHandler = placeSingleHandler;
-                    
+
+                    // Create annotation handlers (may be null if types not found — graceful fallback)
+                    IExternalEventHandler placeAnnotationsAllHandler = placeAnnotationsAllHandlerType != null
+                        ? Activator.CreateInstance(placeAnnotationsAllHandlerType) as IExternalEventHandler : null;
+                    IExternalEventHandler placeAnnotationsSingleHandler = placeAnnotationsSingleHandlerType != null
+                        ? Activator.CreateInstance(placeAnnotationsSingleHandlerType) as IExternalEventHandler : null;
+                    _placeAnnotationsSingleHandler = placeAnnotationsSingleHandler;
+
                     // Create ExternalEvents
                     _annotateEvent = ExternalEvent.Create(annotateHandler);
                     _placeElementsEvent = ExternalEvent.Create(placeElementsHandler);
                     _placeSingleBlockTypeEvent = ExternalEvent.Create(placeSingleHandler);
+                    if (placeAnnotationsAllHandler != null)
+                        _placeAnnotationsEvent = ExternalEvent.Create(placeAnnotationsAllHandler);
+                    if (placeAnnotationsSingleHandler != null)
+                        _placeAnnotationsSingleEvent = ExternalEvent.Create(placeAnnotationsSingleHandler);
                     
                     Core.DebugLogger.Log("[OpenDwg2rvtPanelCommand] ExternalEvents created successfully");
                 }
@@ -114,7 +130,9 @@ namespace PluginsManager.Commands
                     uiApp, 
                     _annotateEvent, 
                     _placeElementsEvent, 
-                    _placeSingleBlockTypeEvent 
+                    _placeSingleBlockTypeEvent,
+                    _placeAnnotationsEvent,
+                    _placeAnnotationsSingleEvent
                 });
                 
                 if (panel == null)
@@ -138,6 +156,13 @@ namespace PluginsManager.Commands
                         {
                             setPanelMethod.Invoke(_placeSingleBlockTypeHandler, new object[] { panelContent });
                             Core.DebugLogger.Log("[OpenDwg2rvtPanelCommand] PlaceSingleBlockTypeHandler linked to panel");
+                        }
+
+                        // Also link PlaceAnnotationsSingleHandler if present
+                        if (_placeAnnotationsSingleHandler != null)
+                        {
+                            var setAnnotMethod = panelContent.GetType().GetMethod("SetAnnotationsSingleHandler");
+                            setAnnotMethod?.Invoke(panelContent, new object[] { _placeAnnotationsSingleHandler });
                         }
                     }
                 }

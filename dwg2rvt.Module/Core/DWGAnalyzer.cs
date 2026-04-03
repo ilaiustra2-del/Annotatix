@@ -17,5 +17,6 @@ namespace dwg2rvt.Module.Core
         public DateTime AnalysisTimestamp { get; set; } = DateTime.Now;
         public string ImportInstanceName { get; set; }
         public int ImportInstanceId { get; set; }
+        public int ActiveViewId { get; set; }  // View ID at the time of analysis
     }
 }

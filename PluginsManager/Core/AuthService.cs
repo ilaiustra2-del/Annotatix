@@ -20,10 +20,21 @@ namespace PluginsManager.Core
         private const string SUPABASE_URL = "https://mwlrionsymujbjvhtcgp.supabase.co";
         private const string SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im13bHJpb25zeW11amJqdmh0Y2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgxNTU1MjEsImV4cCI6MjA4MzczMTUyMX0.-UqfA-bcnNY9BgziQLvUhDKEyhiMsvo93Osr0GIw5TM";
         
+        /// <summary>
+        /// Local proxy server base URL.
+        /// </summary>
+        private const string SERVER_URL = "http://194.67.122.89:8000";
+        
         private static readonly HttpClient _httpClient = new HttpClient();
         
         // Current authenticated user (static for access from anywhere)
         public static AuthResult CurrentUser { get; set; }
+        
+        /// <summary>
+        /// When true, auth and module downloads go through the local proxy server
+        /// instead of hitting Supabase directly.
+        /// </summary>
+        public static bool UseServerAuth { get; set; } = false;
         
         static AuthService()
         {
@@ -48,22 +59,32 @@ namespace PluginsManager.Core
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Starting authentication for: {login}");
+                DebugLogger.Log($"[AUTH-SERVICE] Starting authentication for: {login}");
                 
-                var result = await AuthenticateInternalAsync(login, password);
+                AuthResult result;
+                if (UseServerAuth)
+                {
+                    DebugLogger.Log("[AUTH-SERVICE] *** MODE: PROXY SERVER (localhost:8000) ***");
+                    result = await AuthenticateViaServerAsync(login, password);
+                }
+                else
+                {
+                    DebugLogger.Log("[AUTH-SERVICE] *** MODE: DIRECT SUPABASE ***");
+                    result = await AuthenticateInternalAsync(login, password);
+                }
                 
                 // Save auth data locally if successful
                 if (result.IsSuccess && !string.IsNullOrEmpty(result.RefreshToken))
                 {
                     LocalAuthStorage.SaveAuthData(result.Login, result.RefreshToken);
-                    System.Diagnostics.Debug.WriteLine("[AUTH-SERVICE] Auth data saved locally");
+                    DebugLogger.Log("[AUTH-SERVICE] Auth data saved locally");
                 }
                 
                 return result;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] EXCEPTION: {ex.Message}");
+                DebugLogger.Log($"[AUTH-SERVICE] EXCEPTION: {ex.Message}");
                 return new AuthResult
                 {
                     IsSuccess = false,
@@ -111,6 +132,162 @@ namespace PluginsManager.Core
                 System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Auto-auth exception: {ex.Message}");
                 return new AuthResult { IsSuccess = false, ErrorMessage = ex.Message };
             }
+        }
+        
+        /// <summary>
+        /// Authenticate via local proxy server (POST http://localhost:8000/auth/login).
+        /// The server relays the request to Supabase Auth and returns user + modules info.
+        /// </summary>
+        private async Task<AuthResult> AuthenticateViaServerAsync(string login, string password)
+        {
+            try
+            {
+                DebugLogger.Log($"[AUTH-SERVICE] Server auth: POST {SERVER_URL}/auth/login");
+                
+                var payload = new
+                {
+                    email = login,
+                    password = password
+                };
+                
+                var json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                
+                var response = await _httpClient.PostAsync($"{SERVER_URL}/auth/login", content);
+                var responseBody = await response.Content.ReadAsStringAsync();
+                
+                DebugLogger.Log($"[AUTH-SERVICE] Server response: {response.StatusCode}");
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    string detail = string.Empty;
+                    try
+                    {
+                        var errObj = JObject.Parse(responseBody);
+                        detail = errObj["detail"]?.ToString();
+                    }
+                    catch { }
+                    DebugLogger.Log($"[AUTH-SERVICE] Server auth FAILED: {response.StatusCode} - {detail}");
+                    return new AuthResult
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = $"Ошибка авторизации через сервер: {response.StatusCode}. {detail}"
+                    };
+                }
+                
+                var data = JObject.Parse(responseBody);
+                
+                // Parse modules list from server response
+                var modulesJson = data["modules"] as JArray ?? new JArray();
+                var modules = new List<UserModule>();
+                foreach (var m in modulesJson)
+                {
+                    string tag = m["module_tag"]?.ToString();
+                    if (string.IsNullOrEmpty(tag)) continue;
+                    
+                    DateTime startDate = DateTime.MinValue;
+                    DateTime endDate = DateTime.MaxValue;
+                    
+                    string sd = m["start_date"]?.ToString();
+                    string ed = m["end_date"]?.ToString();
+                    
+                    if (!string.IsNullOrEmpty(sd))
+                        DateTime.TryParseExact(sd, "dd.MM.yyyy",
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.None, out startDate);
+                    
+                    if (!string.IsNullOrEmpty(ed))
+                        DateTime.TryParseExact(ed, "dd.MM.yyyy",
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.None, out endDate);
+                    
+                    modules.Add(new UserModule
+                    {
+                        ModuleTag = tag,
+                        StartDate = startDate,
+                        EndDate = endDate
+                    });
+                }
+                
+                string userId = data["user"]?["id"]?.ToString() ?? string.Empty;
+                string accessToken = data["access_token"]?.ToString() ?? string.Empty;
+                string refreshToken = data["refresh_token"]?.ToString() ?? string.Empty;
+                
+                // Build module file download URLs — via server when UseServerAuth is on
+                var moduleFiles = GetModuleFilesViaServer(modules);
+                
+                DebugLogger.Log($"[AUTH-SERVICE] *** SERVER AUTH OK *** UserId={userId}, Modules={modules.Count}");
+                
+                return new AuthResult
+                {
+                    IsSuccess = true,
+                    UserId = userId,
+                    Login = login,
+                    SubscriptionPlan = null,
+                    Modules = modules,
+                    ModuleFiles = moduleFiles,
+                    RefreshToken = string.IsNullOrEmpty(refreshToken) ? GenerateRefreshToken(userId) : refreshToken
+                };
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[AUTH-SERVICE] Server auth EXCEPTION: {ex.Message}");
+                return new AuthResult
+                {
+                    IsSuccess = false,
+                    ErrorMessage = $"Ошибка плагина (сервер): {ex.Message}"
+                };
+            }
+        }
+        
+        /// <summary>
+        /// Build module file download URLs that point to the proxy server (/modules/download)
+        /// instead of direct Supabase Storage URLs.
+        /// </summary>
+        private List<ModuleFileInfo> GetModuleFilesViaServer(List<UserModule> modules)
+        {
+            var moduleFiles = new List<ModuleFileInfo>();
+            
+            foreach (var module in modules)
+            {
+                if (!module.IsActive) continue;
+                
+                var moduleTag = module.ModuleTag.ToLower();
+                
+                string dllFileName;
+                string pdbFileName;
+                switch (moduleTag)
+                {
+                    case "family_sync":   dllFileName = "FamilySync.Module.dll";   pdbFileName = "FamilySync.Module.pdb";   break;
+                    case "dwg2rvt":       dllFileName = "dwg2rvt.Module.dll";       pdbFileName = "dwg2rvt.Module.pdb";       break;
+                    case "hvac":          dllFileName = "HVAC.Module.dll";           pdbFileName = "HVAC.Module.pdb";           break;
+                    case "autonumbering": dllFileName = "AutoNumbering.Module.dll"; pdbFileName = "AutoNumbering.Module.pdb"; break;
+                    case "clash_resolve": dllFileName = "ClashResolve.Module.dll";  pdbFileName = "ClashResolve.Module.pdb";  break;
+                    default:
+                        System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Unknown module tag (server), skipping: {moduleTag}");
+                        continue;
+                }
+                
+                // Server download endpoint: POST /modules/download returns the binary
+                // We encode the parameters into the URL as a custom scheme so ModuleDownloader
+                // can detect and POST them rather than GET.
+                // Format: server://<moduleTag>/<fileName>
+                string dllUrl = $"{SERVER_URL}/modules/download?module_tag={Uri.EscapeDataString(moduleTag)}&file_path={Uri.EscapeDataString(moduleTag + "/" + dllFileName)}";
+                string pdbUrl = $"{SERVER_URL}/modules/download?module_tag={Uri.EscapeDataString(moduleTag)}&file_path={Uri.EscapeDataString(moduleTag + "/" + pdbFileName)}";
+                
+                moduleFiles.Add(new ModuleFileInfo
+                {
+                    ModuleTag = moduleTag,
+                    DllDownloadUrl = dllUrl,
+                    PdbDownloadUrl = pdbUrl,
+                    Version = "1.0.0",
+                    FileSize = 0
+                });
+                
+                System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Server module DLL URL: {dllUrl}");
+            }
+            
+            return moduleFiles;
         }
         
         /// <summary>
@@ -402,10 +579,9 @@ namespace PluginsManager.Core
                         pdbFileName = "ClashResolve.Module.pdb";
                         break;
                     default:
-                        // Fallback: use module tag as-is
-                        dllFileName = $"{module.ModuleTag}.Module.dll";
-                        pdbFileName = $"{module.ModuleTag}.Module.pdb";
-                        break;
+                        // Unknown/unsupported module tag — skip, do not attempt download.
+                        System.Diagnostics.Debug.WriteLine($"[AUTH-SERVICE] Unknown module tag, skipping download URL generation: {module.ModuleTag}");
+                        continue;
                 }
                 
                 // Supabase Storage public URLs

@@ -120,25 +120,19 @@
         </Grid>
         
         <!-- Field 4: Status Info -->
-        <Border Grid.Row="3" 
-                Background="#F9F9F9"
-                BorderBrush="#E0E0E0"
-                BorderThickness="1"
-                Padding="12"
-                Margin="0,0,0,12">
-            <StackPanel>
-                <TextBlock Text="Статус:" 
-                           FontSize="12" 
-                           Foreground="#666666"
-                           FontWeight="SemiBold"
-                           Margin="0,0,0,6"/>
-                <TextBlock x:Name="txtStatus"
-                           Text="Нажмите 'Анализировать' для поиска стояков"
-                           FontSize="12"
-                           Foreground="#333333"
-                           TextWrapping="Wrap"/>
-            </StackPanel>
-        </Border>
+        <GroupBox Grid.Row="3"
+                  Header="Статус"
+                  MinHeight="60"
+                  BorderBrush="#D0D0D0"
+                  FontSize="12"
+                  Margin="0,0,0,12">
+            <TextBlock x:Name="txtStatus"
+                       Padding="8"
+                       FontSize="12"
+                       Foreground="#495057"
+                       TextWrapping="Wrap"
+                       Text="Нажмите 'Анализировать' для поиска стояков"/>
+        </GroupBox>
         
         <!-- Spacer -->
         <Grid Grid.Row="4"/>

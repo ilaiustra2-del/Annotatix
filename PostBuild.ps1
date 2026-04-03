@@ -43,7 +43,6 @@ while (Test-Path $OutputDir) {
     Write-Host "WARNING: Version folder already exists: $OutputDir"
     Write-Host "Auto-incrementing build number..."
     
-    # Increment build number
     $BuildNumber = [int]$BuildNumber + 1
     $FormattedBuild = $BuildNumber.ToString().PadLeft(3, '0')
     $VersionFolder = "annotatix_ver3.$FormattedBuild"
@@ -62,28 +61,7 @@ if (-not (Test-Path $OutputDir)) {
     Write-Host "Created NEW version directory: $OutputDir"
 }
 
-# Create annotatix_dependencies folder with modular structure
-$DependenciesFolder = [System.IO.Path]::Combine($OutputDir, "annotatix_dependencies")
-$MainFolder = [System.IO.Path]::Combine($DependenciesFolder, "main")
-$Dwg2rvtFolder = [System.IO.Path]::Combine($DependenciesFolder, "dwg2rvt")
-$HvacFolder = [System.IO.Path]::Combine($DependenciesFolder, "hvac")
-$FamilySyncFolder = [System.IO.Path]::Combine($DependenciesFolder, "family_sync")
-$AutoNumberingFolder = [System.IO.Path]::Combine($DependenciesFolder, "autonumbering")
-$ClashResolveFolder = [System.IO.Path]::Combine($DependenciesFolder, "clash_resolve")
-$LogsFolder = [System.IO.Path]::Combine($DependenciesFolder, "logs")
-
-foreach ($folder in @($DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder, $FamilySyncFolder, $AutoNumberingFolder, $ClashResolveFolder, $LogsFolder)) {
-    if (-not (Test-Path $folder)) {
-        New-Item -ItemType Directory -Path $folder -Force | Out-Null
-        Write-Host "Created directory: $folder"
-    }
-}
-
-Write-Host ""
-Write-Host "Organizing modules into folders..."
-Write-Host "----------------"
-
-# Define module-specific files
+# ── Define module file lists (used inside the per-version loop) ──────────────
 $MainFiles = @(
     "PluginsManager.dll",
     "PluginsManager.pdb"
@@ -114,138 +92,185 @@ $ClashResolveFiles = @(
     "ClashResolve.Module.pdb"
 )
 
-# Copy MAIN module files
-Write-Host "Copying MAIN module..."
-foreach ($file in $MainFiles) {
-    $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
-    if (Test-Path $sourcePath) {
-        Copy-Item -Path $sourcePath -Destination $MainFolder -Force
-        Write-Host "  → main/$file"
+$TracerFiles = @(
+    "Tracer.Module.dll",
+    "Tracer.Module.pdb"
+)
+
+$ExcludePatterns = $MainFiles + $Dwg2rvtFiles + $HvacFiles + $FamilySyncFiles + $AutoNumberingFiles + $ClashResolveFiles + $TracerFiles + @("dwg2rvt.dll", "dwg2rvt.pdb")
+
+# ── Multi-version structure: 2024 and 2025 subfolders ────────────────────────
+# Each subfolder is a complete, standalone installation:
+#   annotatix_ver3.XXX/
+#     2024/
+#       Annotatix.addin
+#       annotatix_dependencies/
+#         main/ (PluginsManager.dll + shared deps + icons)
+#         dwg2rvt/ ... hvac/ ... family_sync/ ... autonumbering/ ... clash_resolve/ ... tracer/ ... logs/
+#     2025/   <-- same layout, same DLLs from same build output
+$RevitVersions = @("2024", "2025")
+
+foreach ($RevitVer in $RevitVersions) {
+    $VerSubDir           = [System.IO.Path]::Combine($OutputDir, $RevitVer)
+    $DependenciesFolder  = [System.IO.Path]::Combine($VerSubDir, "annotatix_dependencies")
+    $MainFolder          = [System.IO.Path]::Combine($DependenciesFolder, "main")
+    $Dwg2rvtFolder       = [System.IO.Path]::Combine($DependenciesFolder, "dwg2rvt")
+    $HvacFolder          = [System.IO.Path]::Combine($DependenciesFolder, "hvac")
+    $FamilySyncFolder    = [System.IO.Path]::Combine($DependenciesFolder, "family_sync")
+    $AutoNumberingFolder = [System.IO.Path]::Combine($DependenciesFolder, "autonumbering")
+    $ClashResolveFolder  = [System.IO.Path]::Combine($DependenciesFolder, "clash_resolve")
+    $TracerFolder        = [System.IO.Path]::Combine($DependenciesFolder, "tracer")
+    $LogsFolder          = [System.IO.Path]::Combine($DependenciesFolder, "logs")
+
+    foreach ($folder in @($VerSubDir, $DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder, $FamilySyncFolder, $AutoNumberingFolder, $ClashResolveFolder, $TracerFolder, $LogsFolder)) {
+        if (-not (Test-Path $folder)) {
+            New-Item -ItemType Directory -Path $folder -Force | Out-Null
+            Write-Host "Created directory: $folder"
+        }
     }
-}
 
-# Copy DWG2RVT module files
-Write-Host "Copying DWG2RVT module..."
-foreach ($file in $Dwg2rvtFiles) {
-    $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
-    if (Test-Path $sourcePath) {
-        Copy-Item -Path $sourcePath -Destination $Dwg2rvtFolder -Force
-        Write-Host "  → dwg2rvt/$file"
+    Write-Host ""
+    Write-Host "Organizing modules for Revit $RevitVer..."
+    Write-Host "----------------"
+
+    # Copy MAIN module files
+    Write-Host "Copying MAIN module..."
+    foreach ($file in $MainFiles) {
+        $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
+        if (Test-Path $sourcePath) {
+            Copy-Item -Path $sourcePath -Destination $MainFolder -Force
+            Write-Host "  → $RevitVer/main/$file"
+        }
     }
-}
 
-# Copy HVAC module files
-Write-Host "Copying HVAC module..."
-foreach ($file in $HvacFiles) {
-    $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
-    if (Test-Path $sourcePath) {
-        Copy-Item -Path $sourcePath -Destination $HvacFolder -Force
-        Write-Host "  → hvac/$file"
+    # Copy DWG2RVT module files
+    Write-Host "Copying DWG2RVT module..."
+    foreach ($file in $Dwg2rvtFiles) {
+        $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
+        if (Test-Path $sourcePath) {
+            Copy-Item -Path $sourcePath -Destination $Dwg2rvtFolder -Force
+            Write-Host "  → $RevitVer/dwg2rvt/$file"
+        }
     }
-}
 
-# Copy FamilySync module files
-Write-Host "Copying FamilySync module..."
-foreach ($file in $FamilySyncFiles) {
-    $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
-    if (Test-Path $sourcePath) {
-        Copy-Item -Path $sourcePath -Destination $FamilySyncFolder -Force
-        Write-Host "  → family_sync/$file"
+    # Copy HVAC module files
+    Write-Host "Copying HVAC module..."
+    foreach ($file in $HvacFiles) {
+        $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
+        if (Test-Path $sourcePath) {
+            Copy-Item -Path $sourcePath -Destination $HvacFolder -Force
+            Write-Host "  → $RevitVer/hvac/$file"
+        }
     }
-}
 
-# Copy AutoNumbering module files
-Write-Host "Copying AutoNumbering module..."
-foreach ($file in $AutoNumberingFiles) {
-    $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
-    if (Test-Path $sourcePath) {
-        Copy-Item -Path $sourcePath -Destination $AutoNumberingFolder -Force
-        Write-Host "  → autonumbering/$file"
+    # Copy FamilySync module files
+    Write-Host "Copying FamilySync module..."
+    foreach ($file in $FamilySyncFiles) {
+        $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
+        if (Test-Path $sourcePath) {
+            Copy-Item -Path $sourcePath -Destination $FamilySyncFolder -Force
+            Write-Host "  → $RevitVer/family_sync/$file"
+        }
     }
-}
 
-# Copy ClashResolve module files
-Write-Host "Copying ClashResolve module..."
-foreach ($file in $ClashResolveFiles) {
-    $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
-    if (Test-Path $sourcePath) {
-        Copy-Item -Path $sourcePath -Destination $ClashResolveFolder -Force
-        Write-Host "  → clash_resolve/$file"
+    # Copy AutoNumbering module files
+    Write-Host "Copying AutoNumbering module..."
+    foreach ($file in $AutoNumberingFiles) {
+        $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
+        if (Test-Path $sourcePath) {
+            Copy-Item -Path $sourcePath -Destination $AutoNumberingFolder -Force
+            Write-Host "  → $RevitVer/autonumbering/$file"
+        }
     }
-}
 
-# Copy shared dependencies to main folder (all modules will find them there)
-Write-Host "Copying shared dependencies to main/..."
-$ExcludePatterns = $MainFiles + $Dwg2rvtFiles + $HvacFiles + $FamilySyncFiles + $AutoNumberingFiles + $ClashResolveFiles + @("dwg2rvt.dll", "dwg2rvt.pdb")  # Exclude old artifacts
-Get-ChildItem -Path $TargetDir -File | Where-Object {
-    $fileName = $_.Name
-    $ExcludePatterns -notcontains $fileName
-} | ForEach-Object {
-    Copy-Item -Path $_.FullName -Destination $MainFolder -Force
-}
-Write-Host "  → Shared dependencies copied to main/"
-
-# Copy BuildNumber.txt for version display
-$BuildNumberSource = [System.IO.Path]::Combine($ProjectDir, "BuildNumber.txt")
-if (Test-Path $BuildNumberSource) {
-    Copy-Item -Path $BuildNumberSource -Destination $MainFolder -Force
-    Write-Host "  → main/BuildNumber.txt"
-}
-
-# Copy icons to main folder
-$SourceIcons = [System.IO.Path]::Combine($ProjectDir, "PluginsManager", "UI", "icons")
-$DestIcons = [System.IO.Path]::Combine($MainFolder, "UI", "icons")
-if (Test-Path $SourceIcons) {
-    if (-not (Test-Path $DestIcons)) {
-        New-Item -ItemType Directory -Path $DestIcons -Force | Out-Null
+    # Copy ClashResolve module files
+    Write-Host "Copying ClashResolve module..."
+    foreach ($file in $ClashResolveFiles) {
+        $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
+        if (Test-Path $sourcePath) {
+            Copy-Item -Path $sourcePath -Destination $ClashResolveFolder -Force
+            Write-Host "  → $RevitVer/clash_resolve/$file"
+        }
     }
-    Copy-Item -Path "$SourceIcons\*" -Destination $DestIcons -Force
-    Write-Host "  → main/UI/icons/ (all icons)"
+
+    # Copy Tracer module files
+    Write-Host "Copying Tracer module..."
+    foreach ($file in $TracerFiles) {
+        $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
+        if (Test-Path $sourcePath) {
+            Copy-Item -Path $sourcePath -Destination $TracerFolder -Force
+            Write-Host "  → $RevitVer/tracer/$file"
+        }
+    }
+
+    # Copy shared dependencies to main folder
+    Write-Host "Copying shared dependencies to $RevitVer/main/..."
+    Get-ChildItem -Path $TargetDir -File | Where-Object {
+        $fileName = $_.Name
+        $ExcludePatterns -notcontains $fileName
+    } | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination $MainFolder -Force
+    }
+    Write-Host "  → Shared dependencies copied to $RevitVer/main/"
+
+    # Copy BuildNumber.txt for version display
+    $BuildNumberSource = [System.IO.Path]::Combine($ProjectDir, "BuildNumber.txt")
+    if (Test-Path $BuildNumberSource) {
+        Copy-Item -Path $BuildNumberSource -Destination $MainFolder -Force
+        Write-Host "  → $RevitVer/main/BuildNumber.txt"
+    }
+
+    # Copy icons to main folder
+    $SourceIcons = [System.IO.Path]::Combine($ProjectDir, "PluginsManager", "UI", "icons")
+    $DestIcons   = [System.IO.Path]::Combine($MainFolder, "UI", "icons")
+    if (Test-Path $SourceIcons) {
+        if (-not (Test-Path $DestIcons)) {
+            New-Item -ItemType Directory -Path $DestIcons -Force | Out-Null
+        }
+        Copy-Item -Path "$SourceIcons\*" -Destination $DestIcons -Force
+        Write-Host "  → $RevitVer/main/UI/icons/"
+    }
+
+    # Create .addin file inside the versioned subfolder
+    $AddinFile    = [System.IO.Path]::Combine($VerSubDir, "Annotatix.addin")
+    $AssemblyPath = "annotatix_dependencies\main\PluginsManager.dll"
+
+    $AddinContent  = "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n"
+    $AddinContent += "<RevitAddIns>`n"
+    $AddinContent += "  <AddIn Type=`"Application`">`n"
+    $AddinContent += "    <Name>Annotatix</Name>`n"
+    $AddinContent += "    <Assembly>$AssemblyPath</Assembly>`n"
+    $AddinContent += "    <ClientId>b1c2d3e4-f5a6-7890-1234-567890abcdef</ClientId>`n"
+    $AddinContent += "    <FullClassName>PluginsManager.App</FullClassName>`n"
+    $AddinContent += "    <VendorId>ANNOTATIX</VendorId>`n"
+    $AddinContent += "    <VendorDescription>Annotatix - Revit Plugin Manager with Dynamic Module Loading</VendorDescription>`n"
+    $AddinContent += "  </AddIn>`n"
+    $AddinContent += "</RevitAddIns>"
+
+    [System.IO.File]::WriteAllText($AddinFile, $AddinContent, [System.Text.Encoding]::UTF8)
+    Write-Host "- Created $RevitVer/Annotatix.addin"
 }
 
-# Create .addin file
-$AddinFile = [System.IO.Path]::Combine($OutputDir, "Annotatix.addin")
-Write-Host "Creating .addin file..."
-
-# Use RELATIVE path from .addin file location
-# .addin is in %APPDATA%\Autodesk\Revit\Addins\2024\
-# DLL is in %APPDATA%\Autodesk\Revit\Addins\2024\annotatix_dependencies\main\PluginsManager.dll
-# So relative path is: annotatix_dependencies\main\PluginsManager.dll
-$AssemblyPath = "annotatix_dependencies\main\PluginsManager.dll"
-
-# Create XML content
-$AddinContent = "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n"
-$AddinContent += "<RevitAddIns>`n"
-$AddinContent += "  <AddIn Type=`"Application`">`n"
-$AddinContent += "    <Name>Annotatix</Name>`n"
-$AddinContent += "    <Assembly>$AssemblyPath</Assembly>`n"
-$AddinContent += "    <ClientId>b1c2d3e4-f5a6-7890-1234-567890abcdef</ClientId>`n"
-$AddinContent += "    <FullClassName>PluginsManager.App</FullClassName>`n"
-$AddinContent += "    <VendorId>ANNOTATIX</VendorId>`n"
-$AddinContent += "    <VendorDescription>Annotatix - Revit Plugin Manager with Dynamic Module Loading</VendorDescription>`n"
-$AddinContent += "  </AddIn>`n"
-$AddinContent += "</RevitAddIns>"
-
-# Save with UTF-8 encoding (with BOM for better compatibility)
-[System.IO.File]::WriteAllText($AddinFile, $AddinContent, [System.Text.Encoding]::UTF8)
-Write-Host "- Created Annotatix.addin"
-Write-Host "  Assembly path (relative): $AssemblyPath"
-
-# MANUAL DEPLOYMENT MODE - Files are NOT automatically copied to Revit
-# User will manually copy files from the output folder to Revit Addins
+# ── Summary ───────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "========================================"
 Write-Host "MANUAL DEPLOYMENT MODE"
 Write-Host "========================================"
 Write-Host "Files are ready in: $OutputDir"
 Write-Host ""
-Write-Host "To install manually:"
+Write-Host "To install for Revit 2024:"
 Write-Host "1. Close Revit completely"
-Write-Host "2. Copy contents of '$DependenciesFolder' to:"
+Write-Host "2. Copy contents of '$OutputDir\2024\annotatix_dependencies' to:"
 Write-Host "   %APPDATA%\Autodesk\Revit\Addins\2024\annotatix_dependencies\"
-Write-Host "3. Copy '$AddinFile' to:"
+Write-Host "3. Copy '$OutputDir\2024\Annotatix.addin' to:"
 Write-Host "   %APPDATA%\Autodesk\Revit\Addins\2024\"
-Write-Host "4. Restart Revit"
+Write-Host ""
+Write-Host "To install for Revit 2025:"
+Write-Host "1. Close Revit completely"
+Write-Host "2. Copy contents of '$OutputDir\2025\annotatix_dependencies' to:"
+Write-Host "   %APPDATA%\Autodesk\Revit\Addins\2025\annotatix_dependencies\"
+Write-Host "3. Copy '$OutputDir\2025\Annotatix.addin' to:"
+Write-Host "   %APPDATA%\Autodesk\Revit\Addins\2025\"
 Write-Host "========================================"
 
 Write-Host ""
@@ -256,14 +281,13 @@ Write-Host "Version: 3.$FormattedBuild"
 Write-Host "Output: $OutputDir"
 Write-Host ""
 Write-Host "Structure:"
-Write-Host "- Annotatix.addin (manifest file)"
-Write-Host "- annotatix_dependencies/"
-Write-Host "  + main/ (Core: PluginsManager.dll + ALL dependencies + UI + icons)"
-Write-Host "  + dwg2rvt/ (Module: dwg2rvt.Module.dll ONLY)"
-Write-Host "  + hvac/ (Module: HVAC.Module.dll ONLY)"
-Write-Host "  + family_sync/ (Module: FamilySync.Module.dll ONLY)"
-Write-Host "  + autonumbering/ (Module: AutoNumbering.Module.dll ONLY)"
-Write-Host "  + clash_resolve/ (Module: ClashResolve.Module.dll ONLY)"
-Write-Host ""
-Write-Host "NOTE: All shared dependencies are in main/ for optimal loading"
+Write-Host "- 2024/  (for Revit 2024)"
+Write-Host "  + Annotatix.addin"
+Write-Host "  + annotatix_dependencies/"
+Write-Host "    + main/ (PluginsManager.dll + ALL deps + icons)"
+Write-Host "    + dwg2rvt/ hvac/ family_sync/ autonumbering/ clash_resolve/ logs/"
+Write-Host "- 2025/  (for Revit 2025 - same DLLs, correct log path auto-detected)"
+Write-Host "  + Annotatix.addin"
+Write-Host "  + annotatix_dependencies/"
+Write-Host "    + main/ dwg2rvt/ hvac/ family_sync/ autonumbering/ clash_resolve/ logs/"
 Write-Host "========================================"

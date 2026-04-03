@@ -34,11 +34,13 @@ namespace dwg2rvt.Module
                 throw new ArgumentException("First parameter must be UIApplication");
             }
             
-            // ExternalEvents are optional (parameters[1], [2], [3])
+            // ExternalEvents are optional (parameters[1], [2], [3], [4], [5])
             // If provided, they MUST be created in IExternalCommand.Execute() context
-            ExternalEvent annotateEvent = parameters.Length > 1 ? parameters[1] as ExternalEvent : null;
-            ExternalEvent placeElementsEvent = parameters.Length > 2 ? parameters[2] as ExternalEvent : null;
-            ExternalEvent placeSingleBlockEvent = parameters.Length > 3 ? parameters[3] as ExternalEvent : null;
+            ExternalEvent annotateEvent          = parameters.Length > 1 ? parameters[1] as ExternalEvent : null;
+            ExternalEvent placeElementsEvent     = parameters.Length > 2 ? parameters[2] as ExternalEvent : null;
+            ExternalEvent placeSingleBlockEvent  = parameters.Length > 3 ? parameters[3] as ExternalEvent : null;
+            ExternalEvent placeAnnotationsEvent  = parameters.Length > 4 ? parameters[4] as ExternalEvent : null;
+            ExternalEvent placeAnnotSingleEvent  = parameters.Length > 5 ? parameters[5] as ExternalEvent : null;
 
             DebugLogger.Log("[DWG2RVT-MODULE] Creating dwg2rvtPanel...");
             
@@ -52,7 +54,7 @@ namespace dwg2rvt.Module
                 DebugLogger.Log("[DWG2RVT-MODULE] Buttons 'Annotate' and 'Place Elements' will be disabled");
             }
             
-            var panel = new UI.dwg2rvtPanel(uiApp, annotateEvent, placeElementsEvent, placeSingleBlockEvent);
+            var panel = new UI.dwg2rvtPanel(uiApp, annotateEvent, placeElementsEvent, placeSingleBlockEvent, placeAnnotationsEvent, placeAnnotSingleEvent);
             
             var window = new Window
             {

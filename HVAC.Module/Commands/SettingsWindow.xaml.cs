@@ -17,7 +17,7 @@ namespace HVACSuperScheme.Commands.Settings
 
         public SettingsWindow(Document document)
         {
-            InitializeComponent();
+            InitializeComponent();/*  */
             _document = document;
             
             // Read current settings

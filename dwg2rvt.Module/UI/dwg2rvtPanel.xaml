@@ -16,7 +16,10 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -48,8 +51,22 @@
             </ComboBox>
         </StackPanel>
         
+        <!-- Placement View Selection -->
+        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+            <TextBlock Text="Вид для размещения семейств:" 
+                       FontSize="13" 
+                       Foreground="#333333"
+                       Margin="0,0,0,4"/>
+            <ComboBox x:Name="cmbPlacementView"
+                      Height="28"
+                      FontSize="13"
+                      BorderBrush="#ADADAD"
+                      Background="White"
+                      SelectionChanged="CmbPlacementView_SelectionChanged"/>
+        </StackPanel>
+
         <!-- Table (visual representation via Grid) -->
-        <Border Grid.Row="2" 
+        <Border Grid.Row="3" 
                 BorderBrush="#D0D0D0" 
                 BorderThickness="1"
                 Background="White">
@@ -103,36 +120,54 @@
         </Border>
         
         <!-- Action Buttons Row -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
-            <Button x:Name="btnAnalyze"
-                    Content="Анализировать"
-                    Style="{StaticResource SecondaryButton}"
-                    Click="BtnAnalyzeByName_Click"
-                    Margin="0,0,8,0"/>
-            <Button x:Name="btnSelectAll"
-                    Content="Все"
-                    Style="{StaticResource SecondaryButton}"
-                    Click="BtnSelectAll_Click"
-                    Margin="0,0,8,0"/>
-            <Button x:Name="btnSelectNone"
-                    Content="Ни одного"
-                    Style="{StaticResource SecondaryButton}"
-                    Click="BtnSelectNone_Click"
-                    Margin="0,0,8,0"/>
-            <Button x:Name="btnPlaceSelected"
-                    Content="Разместить выделенное"
-                    Style="{StaticResource SecondaryButton}"
-                    Click="BtnPlaceSelected_Click"
-                    Margin="0,0,8,0"/>
-            <Button x:Name="btnPlaceAll"
-                    Content="Расставить все"
-                    Style="{StaticResource PrimaryButton}"
-                    Click="BtnPlaceElements_Click"
-                    IsEnabled="False"/>
-        </StackPanel>
+        <Grid Grid.Row="4" Margin="0,12,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Row 1: analysis buttons -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal">
+                <Button x:Name="btnAnalyze"
+                        Content="Анализировать"
+                        Style="{StaticResource SecondaryButton}"
+                        Click="BtnAnalyzeByName_Click"
+                        Margin="0,0,8,0"/>
+                <Button x:Name="btnSelectAll"
+                        Content="Все"
+                        Style="{StaticResource SecondaryButton}"
+                        Click="BtnSelectAll_Click"
+                        Margin="0,0,8,0"/>
+                <Button x:Name="btnSelectNone"
+                        Content="Ни одного"
+                        Style="{StaticResource SecondaryButton}"
+                        Click="BtnSelectNone_Click"
+                        Margin="0,0,8,0"/>
+                <Button x:Name="btnPlaceSelected"
+                        Content="Разместить выделенное"
+                        Style="{StaticResource SecondaryButton}"
+                        Click="BtnPlaceSelected_Click"
+                        Margin="0,0,8,0"/>
+                <Button x:Name="btnPlaceAll"
+                        Content="Расставить все"
+                        Style="{StaticResource PrimaryButton}"
+                        Click="BtnPlaceElements_Click"
+                        IsEnabled="False"/>
+            </StackPanel>
+
+            <!-- Row 2: crop filter -->
+            <CheckBox x:Name="chkCropFilter"
+                      Grid.Row="1"
+                      Content="Анализировать только область обрезки вида"
+                      IsChecked="False"
+                      Margin="0,6,0,0"
+                      FontSize="12"
+                      Foreground="#495057"
+                      VerticalAlignment="Center"/>
+        </Grid>
         
         <!-- Status GroupBox -->
-        <GroupBox Grid.Row="4"
+        <GroupBox Grid.Row="5"
                   Header="Статус"
                   MinHeight="50"
                   BorderBrush="#D0D0D0"
@@ -145,6 +180,29 @@
                        TextWrapping="Wrap"/>
         </GroupBox>
         
-        <!-- Footer Buttons - REMOVED (not needed) -->
+        <!-- Annotations toggle button -->
+        <Button x:Name="btnToggleAnnotations"
+                Grid.Row="6"
+                HorizontalAlignment="Left"
+                Margin="0,8,0,0"
+                FontSize="12"
+                Padding="8,4"
+                Click="BtnToggleAnnotations_Click">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Размещение аннотаций" VerticalAlignment="Center"/>
+                <TextBlock x:Name="txtAnnotArrow" Text=" ∨" VerticalAlignment="Center" FontSize="10"/>
+            </StackPanel>
+        </Button>
+
+        <!-- Annotations panel (collapsible) -->
+        <Border x:Name="annotationsPanel"
+                Grid.Row="7"
+                Visibility="Collapsed"
+                BorderBrush="#D0D0D0"
+                BorderThickness="1"
+                Margin="0,4,0,0"
+                Background="White">
+            <StackPanel x:Name="annotationsStackPanel" Margin="0"/>
+        </Border>
     </Grid>
 </UserControl>

@@ -88,6 +88,10 @@
   <!-- Include only PluginsManager files -->
   <ItemGroup>
     <Compile Include="PluginsManager\**\*.cs" />
+    <Compile Include="Commands\TracerCommands.cs" />
+    <Compile Include="Tracer.Module\Core\PipeData.cs" Link="Linked\PipeData.cs" />
+    <Compile Include="Tracer.Module\Core\ConnectionCalculator.cs" Link="Linked\ConnectionCalculator.cs" />
+    <Compile Include="Tracer.Module\Core\RevitPipeUtils.cs" Link="Linked\RevitPipeUtils.cs" />
     <Page Include="PluginsManager\**\*.xaml" SubType="Designer" Generator="MSBuild:Compile" />
     <Compile Update="PluginsManager\**\*.xaml.cs" DependentUpon="%(Filename)" />
   </ItemGroup>

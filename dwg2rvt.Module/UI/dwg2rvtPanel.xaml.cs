@@ -16,7 +16,16 @@ namespace dwg2rvt.Module.UI
         private ExternalEvent _externalEvent;
         private ExternalEvent _placeElementsEvent;
         private ExternalEvent _placeSingleBlockTypeEvent;
+        private ExternalEvent _placeAnnotationsEvent;
+        private ExternalEvent _placeAnnotationsSingleEvent;
+        private object _placeAnnotationsSingleHandler; // for setting block type name
         private Dictionary<string, BlockTypeInfo> _blockTypesData = new Dictionary<string, BlockTypeInfo>();
+        private Dictionary<string, AnnotationConfig> _annotationConfigs = new Dictionary<string, AnnotationConfig>();
+        private bool _annotationsPanelVisible = false;
+        // ViewId captured at button-click time (UI thread) so handlers use the correct active view
+        public ElementId PlacementViewId { get; set; }
+        // List of floor plan views for the placement view combobox
+        private List<View> _planViews = new List<View>();
 
         // Class to store block type information with family selection
         public class BlockTypeInfo
@@ -38,13 +47,15 @@ namespace dwg2rvt.Module.UI
             public double RotationAngle { get; set; } = 0;  // Rotation angle in degrees
         }
 
-        public dwg2rvtPanel(UIApplication uiApp, ExternalEvent annotateEvent, ExternalEvent placeElementsEvent = null, ExternalEvent placeSingleBlockTypeEvent = null)
+        public dwg2rvtPanel(UIApplication uiApp, ExternalEvent annotateEvent, ExternalEvent placeElementsEvent = null, ExternalEvent placeSingleBlockTypeEvent = null, ExternalEvent placeAnnotationsEvent = null, ExternalEvent placeAnnotationsSingleEvent = null)
         {
             InitializeComponent();
             _uiApp = uiApp;
             _externalEvent = annotateEvent;
             _placeElementsEvent = placeElementsEvent;
             _placeSingleBlockTypeEvent = placeSingleBlockTypeEvent;
+            _placeAnnotationsEvent = placeAnnotationsEvent;
+            _placeAnnotationsSingleEvent = placeAnnotationsSingleEvent;
             
             // Debug logging with timestamp to verify dynamic loading
             var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
@@ -57,6 +68,8 @@ namespace dwg2rvt.Module.UI
             
             // Set this panel as the active panel for PlaceElementsEventHandler
             PlaceElementsEventHandler.SetActivePanel(this);
+            PlaceAnnotationsAllEventHandler.SetActivePanel(this);
+            PlaceAnnotationsSingleEventHandler.SetActivePanel(this);
 
             this.Loaded += (s, e) => InitializePanel();
         }
@@ -83,6 +96,8 @@ namespace dwg2rvt.Module.UI
 
                 // Load imported DWG files
                 LoadImportedFiles();
+                // Load floor plan views for placement view selection
+                LoadPlanViews();
 
                 if (txtStatus != null)
                     txtStatus.Text = "Ready. Select an imported DWG file and click Analyze.";
@@ -135,6 +150,59 @@ namespace dwg2rvt.Module.UI
                 txtStatus.Text = $"Error loading imported files: {ex.Message}";
                 btnAnalyze.IsEnabled = false;
             }
+        }
+
+        private void LoadPlanViews()
+        {
+            try
+            {
+                _planViews = new List<View>();
+                cmbPlacementView.Items.Clear();
+
+                // Collect all floor plan views that have a GenLevel
+                var views = new FilteredElementCollector(_doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .Where(v => !v.IsTemplate &&
+                                (v.ViewType == ViewType.FloorPlan || v.ViewType == ViewType.CeilingPlan) &&
+                                v.GenLevel != null)
+                    .OrderBy(v => v.Name)
+                    .ToList();
+
+                View activeView = _doc.ActiveView;
+                int autoSelectIndex = 0;
+
+                for (int i = 0; i < views.Count; i++)
+                {
+                    _planViews.Add(views[i]);
+                    cmbPlacementView.Items.Add(views[i].Name);
+                    if (activeView != null && views[i].Id == activeView.Id)
+                        autoSelectIndex = i;
+                }
+
+                if (cmbPlacementView.Items.Count > 0)
+                {
+                    cmbPlacementView.SelectedIndex = autoSelectIndex;
+                    // Also set directly in case SelectionChanged fires before _planViews is ready
+                    PlacementViewId = _planViews[autoSelectIndex].Id;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Non-critical: placement view selection just won't be available
+                System.Diagnostics.Debug.WriteLine($"[LoadPlanViews] Error: {ex.Message}");
+            }
+        }
+
+        private void CmbPlacementView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            try
+            {
+                int idx = cmbPlacementView.SelectedIndex;
+                if (idx >= 0 && idx < _planViews.Count)
+                    PlacementViewId = _planViews[idx].Id;
+            }
+            catch { }
         }
 
         private string GetImportDisplayName(ImportInstance importInstance)
@@ -194,6 +262,52 @@ namespace dwg2rvt.Module.UI
                 dwg2rvt.Module.Core.AnalyzeByBlockName analyzer = new dwg2rvt.Module.Core.AnalyzeByBlockName(doc);
                 var analysisResult = analyzer.Analyze(selectedImport, UpdateStatus, enableLogging);
 
+                // Store the active view ID so placement handlers use the correct level
+                if (analysisResult.Success)
+                    analysisResult.ActiveViewId = doc.ActiveView?.Id?.IntegerValue ?? -1;
+
+                // --- Crop filter ---
+                if (analysisResult.Success && chkCropFilter.IsChecked == true)
+                {
+                    View activeView = doc.ActiveView;
+                    if (activeView != null && activeView.CropBoxActive && activeView.CropBox != null)
+                    {
+                        BoundingBoxXYZ cropBox = activeView.CropBox;
+                        // CropBox is in view-local coordinates; transform to world coordinates
+                        Transform t = cropBox.Transform;
+                        XYZ minWorld = t.OfPoint(cropBox.Min);
+                        XYZ maxWorld = t.OfPoint(cropBox.Max);
+                        double xMin = Math.Min(minWorld.X, maxWorld.X);
+                        double xMax = Math.Max(minWorld.X, maxWorld.X);
+                        double yMin = Math.Min(minWorld.Y, maxWorld.Y);
+                        double yMax = Math.Max(minWorld.Y, maxWorld.Y);
+
+                        int beforeCount = analysisResult.BlockData.Count;
+                        analysisResult.BlockData.RemoveAll(b =>
+                            b.CenterX < xMin || b.CenterX > xMax ||
+                            b.CenterY < yMin || b.CenterY > yMax);
+
+                        // Rebuild BlocksByType from filtered list
+                        analysisResult.BlocksByType.Clear();
+                        foreach (var bd in analysisResult.BlockData)
+                        {
+                            if (!analysisResult.BlocksByType.ContainsKey(bd.Name))
+                                analysisResult.BlocksByType[bd.Name] = new List<dwg2rvt.Module.Core.BlockData>();
+                            analysisResult.BlocksByType[bd.Name].Add(bd);
+                        }
+
+                        int afterCount = analysisResult.BlockData.Count;
+                        UpdateStatus($"Crop filter: {beforeCount - afterCount} blocks removed outside crop region ({afterCount} remain).");
+
+                        // Re-store filtered result in cache
+                        dwg2rvt.Module.Core.AnalysisDataCache.StoreAnalysisResult(analysisResult);
+                    }
+                    else
+                    {
+                        UpdateStatus("Crop filter: view has no active crop box — showing all blocks.");
+                    }
+                }
+
                 if (analysisResult.Success)
                 {
                     txtProgress.Text = "Analysis complete!";
@@ -214,6 +328,10 @@ namespace dwg2rvt.Module.UI
                     
                     // Create dynamic UI for family selection
                     CreateFamilySelectionUI();
+
+                    // Refresh annotation UI if panel is already visible
+                    if (_annotationsPanelVisible)
+                        CreateAnnotationUI();
 
                     // Success message removed - status is shown in status window
                 }
@@ -771,6 +889,9 @@ namespace dwg2rvt.Module.UI
                 
                 if (_placeElementsEvent != null)
                 {
+                    string viewInfo = PlacementViewId != null ? 
+                        (_planViews.FirstOrDefault(v => v.Id == PlacementViewId)?.Name ?? "?") : "не выбран";
+                    UpdateStatus($"Запуск размещения... Вид: {viewInfo}");
                     _placeElementsEvent.Raise();
                 }
                 else
@@ -834,6 +955,7 @@ namespace dwg2rvt.Module.UI
                     return;
                 }
                 
+                // PlacementViewId is already set from the combobox selection
                 _placeSingleBlockTypeEvent.Raise();
             }
             catch (Exception ex)
@@ -931,6 +1053,323 @@ namespace dwg2rvt.Module.UI
                 MessageBox.Show("Откройте ссылку: https://annotatix.ai/docs/dwg2rvt", 
                     "Справка", MessageBoxButton.OK, MessageBoxImage.Information);
             }
+        }
+
+        // === ANNOTATION CONFIG ===
+
+        public class AnnotationConfig
+        {
+            public string BlockTypeName { get; set; }
+            public string Prefix       { get; set; } = "";
+            public string Main         { get; set; } = ""; // empty = auto-numbering
+            public string Suffix       { get; set; } = "";
+            // UI fields
+            public System.Windows.Controls.TextBox PrefixBox { get; set; }
+            public System.Windows.Controls.TextBox MainBox   { get; set; }
+            public System.Windows.Controls.TextBox SuffixBox { get; set; }
+        }
+
+        /// <summary>
+        /// Rebuilds the annotation UI table from current _blockTypesData.
+        /// Called after analysis and every time the panel is shown.
+        /// </summary>
+        private void CreateAnnotationUI()
+        {
+            annotationsStackPanel.Children.Clear();
+
+            if (_blockTypesData.Count == 0)
+            {
+                var hint = new TextBlock
+                {
+                    Text = "Сначала выполните анализ блоков.",
+                    FontSize = 11,
+                    Foreground = System.Windows.Media.Brushes.Gray,
+                    Margin = new Thickness(8)
+                };
+                annotationsStackPanel.Children.Add(hint);
+                return;
+            }
+
+            // --- header row ---
+            var headerGrid = new System.Windows.Controls.Grid { Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(240, 240, 240)) };
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+
+            string[] headers = { "Наименование блока", "Префикс", "Основная часть", "Суффикс", "Действие" };
+            for (int i = 0; i < headers.Length; i++)
+            {
+                var b = new Border { BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(208, 208, 208)), BorderThickness = new Thickness(0, 0, i < headers.Length - 1 ? 1 : 0, 1), Padding = new Thickness(6, 4, 6, 4) };
+                b.Child = new TextBlock { Text = headers[i], FontSize = 11, FontWeight = FontWeights.SemiBold };
+                System.Windows.Controls.Grid.SetColumn(b, i);
+                headerGrid.Children.Add(b);
+            }
+            annotationsStackPanel.Children.Add(headerGrid);
+
+            // --- data rows ---
+            foreach (var blockType in _blockTypesData.Values)
+            {
+                if (!_annotationConfigs.ContainsKey(blockType.BlockTypeName))
+                    _annotationConfigs[blockType.BlockTypeName] = new AnnotationConfig { BlockTypeName = blockType.BlockTypeName };
+
+                var cfg = _annotationConfigs[blockType.BlockTypeName];
+
+                var rowGrid = new System.Windows.Controls.Grid { Background = System.Windows.Media.Brushes.White };
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
+                rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+
+                // col 0 - name
+                var nameBorder = new Border { BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(224, 224, 224)), BorderThickness = new Thickness(0, 0, 1, 1), Padding = new Thickness(6, 4, 6, 4) };
+                nameBorder.Child = new TextBlock { Text = blockType.BlockTypeName, FontSize = 11, VerticalAlignment = System.Windows.VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+                System.Windows.Controls.Grid.SetColumn(nameBorder, 0);
+                rowGrid.Children.Add(nameBorder);
+
+                // col 1 - prefix
+                var prefixBox = new System.Windows.Controls.TextBox { Text = cfg.Prefix, FontSize = 11, BorderThickness = new Thickness(0), Padding = new Thickness(4, 2, 4, 2), VerticalContentAlignment = System.Windows.VerticalAlignment.Center };
+                prefixBox.TextChanged += (s, e2) => cfg.Prefix = prefixBox.Text;
+                cfg.PrefixBox = prefixBox;
+                var prefixBorder = new Border { BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(224, 224, 224)), BorderThickness = new Thickness(0, 0, 1, 1) };
+                prefixBorder.Child = prefixBox;
+                System.Windows.Controls.Grid.SetColumn(prefixBorder, 1);
+                rowGrid.Children.Add(prefixBorder);
+
+                // col 2 - main
+                var mainBox = new System.Windows.Controls.TextBox { Text = cfg.Main, FontSize = 11, BorderThickness = new Thickness(0), Padding = new Thickness(4, 2, 4, 2), VerticalContentAlignment = System.Windows.VerticalAlignment.Center };
+                var mainPlaceholder = new TextBlock { Text = "авто-нумерация", FontSize = 10, Foreground = System.Windows.Media.Brushes.LightGray, IsHitTestVisible = false, Margin = new Thickness(5, 3, 0, 0) };
+                mainBox.TextChanged += (s, e2) =>
+                {
+                    cfg.Main = mainBox.Text;
+                    mainPlaceholder.Visibility = string.IsNullOrEmpty(mainBox.Text) ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+                };
+                cfg.MainBox = mainBox;
+                var mainGrid = new System.Windows.Controls.Grid();
+                mainGrid.Children.Add(mainBox);
+                mainGrid.Children.Add(mainPlaceholder);
+                var mainBorder = new Border { BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(224, 224, 224)), BorderThickness = new Thickness(0, 0, 1, 1) };
+                mainBorder.Child = mainGrid;
+                System.Windows.Controls.Grid.SetColumn(mainBorder, 2);
+                rowGrid.Children.Add(mainBorder);
+
+                // col 3 - suffix
+                var suffixBox = new System.Windows.Controls.TextBox { Text = cfg.Suffix, FontSize = 11, BorderThickness = new Thickness(0), Padding = new Thickness(4, 2, 4, 2), VerticalContentAlignment = System.Windows.VerticalAlignment.Center };
+                suffixBox.TextChanged += (s, e2) => cfg.Suffix = suffixBox.Text;
+                cfg.SuffixBox = suffixBox;
+                var suffixBorder = new Border { BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(224, 224, 224)), BorderThickness = new Thickness(0, 0, 1, 1) };
+                suffixBorder.Child = suffixBox;
+                System.Windows.Controls.Grid.SetColumn(suffixBorder, 3);
+                rowGrid.Children.Add(suffixBorder);
+
+                // col 4 - action
+                var captureName = blockType.BlockTypeName;
+                var actionBorder = new Border { BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(224, 224, 224)), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(6, 4, 6, 4) };
+                var actionLink = new TextBlock { Text = "Расставить", FontSize = 11, Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0, 120, 212)), Cursor = System.Windows.Input.Cursors.Hand, VerticalAlignment = System.Windows.VerticalAlignment.Center };
+                actionLink.MouseLeftButtonUp += (s, e2) => PlaceAnnotationsSingleBlockType(captureName);
+                actionBorder.Child = actionLink;
+                System.Windows.Controls.Grid.SetColumn(actionBorder, 4);
+                rowGrid.Children.Add(actionBorder);
+
+                annotationsStackPanel.Children.Add(rowGrid);
+            }
+
+            // --- Расставить все button ---
+            var placeAllBtn = new Button
+            {
+                Content = "Расставить все",
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                Margin = new Thickness(6, 6, 6, 6),
+                Padding = new Thickness(10, 4, 10, 4),
+                FontSize = 11
+            };
+            placeAllBtn.Click += (s, e2) => PlaceAnnotationsAll();
+            annotationsStackPanel.Children.Add(placeAllBtn);
+        }
+
+        private void BtnToggleAnnotations_Click(object sender, RoutedEventArgs e)
+        {
+            _annotationsPanelVisible = !_annotationsPanelVisible;
+            if (_annotationsPanelVisible)
+            {
+                CreateAnnotationUI();
+                annotationsPanel.Visibility = System.Windows.Visibility.Visible;
+                txtAnnotArrow.Text = " \u2227";
+            }
+            else
+            {
+                annotationsPanel.Visibility = System.Windows.Visibility.Collapsed;
+                txtAnnotArrow.Text = " ∨";
+            }
+        }
+
+        private void PlaceAnnotationsSingleBlockType(string blockTypeName)
+        {
+            if (!_annotationConfigs.ContainsKey(blockTypeName))
+            {
+                MessageBox.Show($"Конфигурация аннотаций для '{blockTypeName}' не найдена.", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            if (_placeAnnotationsSingleEvent == null)
+            {
+                MessageBox.Show("Событие для размещения аннотаций не инициализировано.", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            // Pass block type name to handler via stored reference
+            try
+            {
+                if (_placeAnnotationsSingleHandler != null)
+                {
+                    var prop = _placeAnnotationsSingleHandler.GetType().GetProperty("BlockTypeName");
+                    prop?.SetValue(_placeAnnotationsSingleHandler, blockTypeName);
+                }
+            }
+            catch { }
+            _placeAnnotationsSingleEvent.Raise();
+        }
+
+        private void PlaceAnnotationsAll()
+        {
+            if (_blockTypesData.Count == 0)
+            {
+                MessageBox.Show("Нет данных блоков. Сначала выполните анализ.", "Предупреждение", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (_placeAnnotationsEvent == null)
+            {
+                MessageBox.Show("Событие для размещения аннотаций не инициализировано.", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            _placeAnnotationsEvent.Raise();
+        }
+
+        /// <summary>
+        /// Exposes annotation configs to EventHandlers.
+        /// </summary>
+        public Dictionary<string, AnnotationConfig> AnnotationConfigs => _annotationConfigs;
+
+        public void SetAnnotationsSingleHandler(object handler)
+        {
+            _placeAnnotationsSingleHandler = handler;
+        }
+
+        // === ANNOTATION EVENT HANDLERS ===
+
+        public class PlaceAnnotationsAllEventHandler : IExternalEventHandler
+        {
+            private static dwg2rvtPanel _activePanel;
+            public static void SetActivePanel(dwg2rvtPanel panel) { _activePanel = panel; }
+
+            public void Execute(UIApplication app)
+            {
+                if (_activePanel == null) return;
+                Document doc = app.ActiveUIDocument?.Document;
+                if (doc == null) return;
+
+                var blockNames = new List<string>(_activePanel._blockTypesData.Keys);
+                PlaceAnnotationsForBlocks(doc, _activePanel, blockNames, app.ActiveUIDocument.ActiveView);
+            }
+            public string GetName() => "PlaceAnnotationsAll";
+        }
+
+        public class PlaceAnnotationsSingleEventHandler : IExternalEventHandler
+        {
+            private static dwg2rvtPanel _activePanel;
+            public static void SetActivePanel(dwg2rvtPanel panel) { _activePanel = panel; }
+
+            public string BlockTypeName { get; set; }
+
+            public void Execute(UIApplication app)
+            {
+                if (_activePanel == null || string.IsNullOrEmpty(BlockTypeName)) return;
+                Document doc = app.ActiveUIDocument?.Document;
+                if (doc == null) return;
+
+                PlaceAnnotationsForBlocks(doc, _activePanel, new List<string> { BlockTypeName }, app.ActiveUIDocument.ActiveView);
+            }
+            public string GetName() => "PlaceAnnotationsSingle";
+        }
+
+        /// <summary>
+        /// Core logic: places TextNotes for the given block names using their AnnotationConfig.
+        /// </summary>
+        private static void PlaceAnnotationsForBlocks(Document doc, dwg2rvtPanel panel, List<string> blockNames, View activeView)
+        {
+            // Pick first available TextNoteType
+            TextNoteType textType = new FilteredElementCollector(doc)
+                .OfClass(typeof(TextNoteType))
+                .Cast<TextNoteType>()
+                .OrderBy(t => t.Name)
+                .FirstOrDefault();
+
+            if (textType == null)
+            {
+                MessageBox.Show("В документе не найден ни один тип текстового примечания.", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            int totalPlaced = 0;
+            int totalErrors = 0;
+
+            using (Transaction trans = new Transaction(doc, "Place DWG Annotations"))
+            {
+                trans.Start();
+                try
+                {
+                    foreach (var blockName in blockNames)
+                    {
+                        if (!panel._blockTypesData.ContainsKey(blockName)) continue;
+                        var blockTypeInfo = panel._blockTypesData[blockName];
+
+                        AnnotationConfig cfg;
+                        if (!panel.AnnotationConfigs.TryGetValue(blockName, out cfg))
+                            cfg = new AnnotationConfig { BlockTypeName = blockName };
+
+                        bool autoNumber = string.IsNullOrEmpty(cfg.Main);
+
+                        // Sort instances left-to-right, top-to-bottom for stable numbering
+                        var sorted = blockTypeInfo.Instances
+                            .OrderByDescending(i => i.CenterY)
+                            .ThenBy(i => i.CenterX)
+                            .ToList();
+
+                        for (int idx = 0; idx < sorted.Count; idx++)
+                        {
+                            var inst = sorted[idx];
+                            string mainPart = autoNumber ? (idx + 1).ToString() : cfg.Main;
+                            string text = cfg.Prefix + mainPart + cfg.Suffix;
+                            if (string.IsNullOrEmpty(text)) text = blockName;
+
+                            try
+                            {
+                                // Offset slightly to the right of the block center
+                                double offsetX = 1.0; // ~300 mm
+                                XYZ location = new XYZ(inst.CenterX + offsetX, inst.CenterY, 0);
+                                TextNote.Create(doc, activeView.Id, location, text, textType.Id);
+                                totalPlaced++;
+                            }
+                            catch
+                            {
+                                totalErrors++;
+                            }
+                        }
+                    }
+                    trans.Commit();
+                }
+                catch (Exception ex)
+                {
+                    trans.RollBack();
+                    MessageBox.Show($"Ошибка при расстановке аннотаций:\n{ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+            }
+
+            panel.Dispatcher.Invoke(() =>
+            {
+                panel.txtProgress.Text = $"Аннотации размещены: {totalPlaced}, ошибок: {totalErrors}";
+            });
         }
 
         public class AnnotateEventHandler : IExternalEventHandler
@@ -1063,17 +1502,29 @@ namespace dwg2rvt.Module.UI
                         try
                         {
                             View activeView = doc.ActiveView;
-                            Level level = activeView.GenLevel ?? GetFirstLevel(doc);
-                            
+
+                            // Get level from the view selected in the combobox
+                            Level level = null;
+                            if (_activePanel?.PlacementViewId != null)
+                            {
+                                var selectedView = doc.GetElement(_activePanel.PlacementViewId) as View;
+                                level = selectedView?.GenLevel;
+                            }
+                            if (level == null) level = activeView?.GenLevel;
+                            if (level == null) level = GetFirstLevel(doc);
+
                             if (level == null)
                             {
-                                MessageBox.Show("Не удалось найти уровень для размещения.", "Ошибка", 
+                                MessageBox.Show("Не удалось определить уровень для размещения.", "Ошибка",
                                     MessageBoxButton.OK, MessageBoxImage.Error);
                                 trans.RollBack();
                                 return;
                             }
-                            
-                            double offsetFromLevel = 500 / 304.8; // 500mm to feet
+
+                            _activePanel.UpdateStatus($"Размещение на уровень: {level.Name}");
+                            // Place directly at level elevation (offset = 0).
+                            // Z = level.Elevation → offset-from-level = 0mm.
+                            double offsetFromLevel = 0;
                             
                             foreach (var blockType in _activePanel._blockTypesData.Values)
                             {
@@ -1135,13 +1586,36 @@ namespace dwg2rvt.Module.UI
                                 {
                                     try
                                     {
-                                        // Coordinates from log file are already in Revit coordinates (feet)
-                                        // Use them directly, same as AnnotateBlocksCommand
-                                        XYZ revitLocation = new XYZ(instance.CenterX, instance.CenterY, 
-                                            level.Elevation + offsetFromLevel);
+                                        // Z semantics depend on FamilyPlacementType:
+                                        // - OneLevelBased: Z = offset from level (feet)
+                                        // - WorkPlaneBased: Z is ignored; set offset via parameter after creation
+                                        // - TwoLevelsBased: Z = absolute world Z
+                                        var fpt = familySymbol.Family.FamilyPlacementType;
+                                        bool zIsAbsolute = fpt == FamilyPlacementType.TwoLevelsBased;
+                                        const double offsetMm = 500.0;
+                                        double placementZ = zIsAbsolute
+                                            ? level.Elevation + offsetMm / 304.8
+                                            : offsetMm / 304.8;
+
+                                        XYZ revitLocation = new XYZ(instance.CenterX, instance.CenterY, placementZ);
                                                                         
                                         FamilyInstance familyInstance = doc.Create.NewFamilyInstance(
-                                            revitLocation, familySymbol, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                                            revitLocation, familySymbol, level,
+                                            Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+
+                                        // For WorkPlaneBased families Z is ignored by NewFamilyInstance.
+                                        // Set the elevation offset explicitly via parameter.
+                                        if (fpt == FamilyPlacementType.WorkPlaneBased)
+                                        {
+                                            double offsetFt = offsetMm / 304.8;
+                                            // Try standard BIPs first, then fall back to named parameter
+                                            var offsetParam =
+                                                familyInstance.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM)
+                                                ?? familyInstance.get_Parameter(BuiltInParameter.INSTANCE_ELEVATION_PARAM)
+                                                ?? familyInstance.LookupParameter("АДСК_Размер_Смещение от уровня")
+                                                ?? familyInstance.LookupParameter("TSL_Отметка от нуля_СП");
+                                            offsetParam?.Set(offsetFt);
+                                        }
                                                                         
                                         // Apply rotation if specified (for sockets)
                                         if (instance.RotationAngle > 0)
@@ -1233,7 +1707,29 @@ namespace dwg2rvt.Module.UI
                 
                 return collector.FirstElement() as Level;
             }
-            
+
+            /// <summary>
+            /// Resolves the correct Level for family placement.
+            /// Priority: (1) ImportInstance base level from cache, (2) saved view's GenLevel, (3) first level.
+            /// </summary>
+            private static Level GetLevelForPlacement(Document doc, View currentActiveView, dwg2rvtPanel panel)
+            {
+                // 1. GenLevel of the view selected in the placement combobox (explicit user choice)
+                try
+                {
+                    if (panel?.PlacementViewId != null)
+                    {
+                        var selectedView = doc.GetElement(panel.PlacementViewId) as View;
+                        if (selectedView?.GenLevel != null) return selectedView.GenLevel;
+                    }
+                }
+                catch { }
+                // 2. GenLevel of the current active view
+                if (currentActiveView?.GenLevel != null) return currentActiveView.GenLevel;
+                // 3. Last resort
+                return GetFirstLevel(doc);
+            }
+
             public string GetName() => "PlaceFamilyElements";
         }
         
@@ -1303,14 +1799,24 @@ namespace dwg2rvt.Module.UI
                             int totalPlaced = 0;
                             int totalFailed = 0;
                             
-                            // Get level
-                            Level level = GetFirstLevel(doc);
+                            // Get level from the view selected in the combobox
+                            Level level = null;
+                            if (_activePanel?.PlacementViewId != null)
+                            {
+                                var selectedView = doc.GetElement(_activePanel.PlacementViewId) as View;
+                                level = selectedView?.GenLevel;
+                            }
+                            if (level == null) level = activeView?.GenLevel;
+                            if (level == null) level = GetFirstLevel(doc);
+
                             if (level == null)
                             {
-                                MessageBox.Show("Не удалось найти уровень в проекте.", 
+                                MessageBox.Show("Не удалось определить уровень для размещения.", 
                                     "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
                                 return;
                             }
+                            
+                            _activePanel.UpdateStatus($"Размещение на уровень: {level.Name}");
                             
                             // Parse family name and type name
                             // Format: "FamilyName: TypeName" where TypeName may contain colons
@@ -1363,20 +1869,41 @@ namespace dwg2rvt.Module.UI
                                 }
                             }
                             
-                            double offsetFromLevel = 500 / 304.8; // 500mm to feet
+                            // Place directly at level elevation (offset = 0).
+                            // Z = level.Elevation → offset-from-level = 0mm.
+                            double offsetFromLevel = 0;
                                                         
                             // Place instances at block coordinates
                             foreach (var instance in blockType.Instances)
                             {
                                 try
                                 {
-                                    // Coordinates from log file are already in Revit coordinates (feet)
-                                    // Use them directly, same as AnnotateBlocksCommand
-                                    XYZ revitLocation = new XYZ(instance.CenterX, instance.CenterY, 
-                                        level.Elevation + offsetFromLevel);
+                                    // For NewFamilyInstance(XYZ, symbol, level, StructuralType):
+                                    // Z component = OFFSET FROM LEVEL in feet (not absolute world Z).
+                                    // For WorkPlaneBased: Z is ignored, set offset via parameter after creation.
+                                    var fpt2 = familySymbol.Family.FamilyPlacementType;
+                                    bool zIsAbsolute2 = fpt2 == FamilyPlacementType.TwoLevelsBased;
+                                    const double offsetMm = 500.0;
+                                    double placementZ = zIsAbsolute2
+                                        ? level.Elevation + offsetMm / 304.8
+                                        : offsetMm / 304.8;
+
+                                    XYZ revitLocation = new XYZ(instance.CenterX, instance.CenterY, placementZ);
                                                                 
                                     FamilyInstance familyInstance = doc.Create.NewFamilyInstance(
-                                        revitLocation, familySymbol, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                                        revitLocation, familySymbol, level,
+                                        Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+
+                                    // For WorkPlaneBased: set offset explicitly via parameter
+                                    if (fpt2 == FamilyPlacementType.WorkPlaneBased)
+                                    {
+                                        var offsetParam =
+                                            familyInstance.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM)
+                                            ?? familyInstance.get_Parameter(BuiltInParameter.INSTANCE_ELEVATION_PARAM)
+                                            ?? familyInstance.LookupParameter("АДСК_Размер_Смещение от уровня")
+                                            ?? familyInstance.LookupParameter("TSL_Отметка от нуля_СП");
+                                        offsetParam?.Set(offsetMm / 304.8);
+                                    }
                                                                 
                                     // Apply rotation if specified (for sockets)
                                     if (instance.RotationAngle > 0)
@@ -1454,6 +1981,24 @@ namespace dwg2rvt.Module.UI
                     .OfClass(typeof(Level));
                 
                 return collector.FirstElement() as Level;
+            }
+
+            private static Level GetLevelForPlacement(Document doc, View currentActiveView, dwg2rvtPanel panel)
+            {
+                // 1. GenLevel of the view selected in the placement combobox (explicit user choice)
+                try
+                {
+                    if (panel?.PlacementViewId != null)
+                    {
+                        var selectedView = doc.GetElement(panel.PlacementViewId) as View;
+                        if (selectedView?.GenLevel != null) return selectedView.GenLevel;
+                    }
+                }
+                catch { }
+                // 2. GenLevel of the current active view
+                if (currentActiveView?.GenLevel != null) return currentActiveView.GenLevel;
+                // 3. Last resort
+                return GetFirstLevel(doc);
             }
             
             public string GetName() => "PlaceSingleBlockType";

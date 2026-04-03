@@ -1,0 +1,215 @@
+<UserControl x:Class="Tracer.Module.UI.TracerPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             mc:Ignorable="d" 
+             d:DesignHeight="600" d:DesignWidth="500">
+    
+    <UserControl.Resources>
+        <Style x:Key="HeaderTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#333333"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+        
+        <Style x:Key="SectionTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#555555"/>
+            <Setter Property="Margin" Value="0,15,0,5"/>
+        </Style>
+        
+        <Style x:Key="InfoTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="#666666"/>
+            <Setter Property="Margin" Value="0,2,0,2"/>
+        </Style>
+        
+        <Style x:Key="SelectButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="15,8"/>
+            <Setter Property="Margin" Value="0,5"/>
+            <Setter Property="Background" Value="#007ACC"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#005A9E"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#CCCCCC"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        
+        <Style x:Key="ActionButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="20,10"/>
+            <Setter Property="Margin" Value="0,10"/>
+            <Setter Property="Background" Value="#28A745"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#218838"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#CCCCCC"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        
+        <Style x:Key="StatusBorderStyle" TargetType="Border">
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="Margin" Value="0,5"/>
+            <Setter Property="Background" Value="#F8F9FA"/>
+            <Setter Property="BorderBrush" Value="#DEE2E6"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+    </UserControl.Resources>
+    
+    <Grid Background="White" Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Header -->
+        <TextBlock Grid.Row="0" 
+                   Text="Трассировка канализации" 
+                   Style="{StaticResource HeaderTextStyle}"/>
+        
+        <TextBlock Grid.Row="1" 
+                   Text="Присоединение стояков к магистральным линиям под углом 45°" 
+                   Style="{StaticResource InfoTextStyle}"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,15"/>
+        
+        <!-- Main Line Selection -->
+        <TextBlock Grid.Row="2" 
+                   Text="1. Выбор магистральной линии" 
+                   Style="{StaticResource SectionTextStyle}"/>
+        
+        <Button Grid.Row="3" 
+                x:Name="SelectMainLineButton"
+                Content="Выбрать магистральную линию" 
+                Style="{StaticResource SelectButtonStyle}"
+                Click="SelectMainLineButton_Click"/>
+        
+        <Border Grid.Row="4" Style="{StaticResource StatusBorderStyle}">
+            <StackPanel>
+                <TextBlock x:Name="MainLineStatusText" 
+                           Text="Магистраль: не выбрана" 
+                           Style="{StaticResource InfoTextStyle}"
+                           FontWeight="SemiBold"/>
+                <TextBlock x:Name="MainLineDetailsText" 
+                           Text="" 
+                           Style="{StaticResource InfoTextStyle}"/>
+            </StackPanel>
+        </Border>
+        
+        <!-- Riser Selection -->
+        <TextBlock Grid.Row="5" 
+                   Text="2. Выбор стояка" 
+                   Style="{StaticResource SectionTextStyle}"/>
+        
+        <Button Grid.Row="6" 
+                x:Name="SelectRiserButton"
+                Content="Выбрать стояк" 
+                Style="{StaticResource SelectButtonStyle}"
+                Click="SelectRiserButton_Click"
+                IsEnabled="False"/>
+        
+        <Border Grid.Row="7" Style="{StaticResource StatusBorderStyle}">
+            <StackPanel>
+                <TextBlock x:Name="RiserStatusText" 
+                           Text="Стояк: не выбран" 
+                           Style="{StaticResource InfoTextStyle}"
+                           FontWeight="SemiBold"/>
+                <TextBlock x:Name="RiserDetailsText" 
+                           Text="" 
+                           Style="{StaticResource InfoTextStyle}"/>
+                
+                <!-- Connection Info -->
+                <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
+                    <TextBlock Text="Высота подключения (мм):" 
+                               Style="{StaticResource InfoTextStyle}"
+                               VerticalAlignment="Center"/>
+                    <TextBlock x:Name="ConnectionHeightTextBlock"
+                               Width="80"
+                               Margin="10,0,0,0"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource InfoTextStyle}"
+                               FontWeight="SemiBold"
+                               Text="-"/>
+                </StackPanel>
+                
+                <!-- Pipe Diameter Info -->
+                <StackPanel Margin="0,5,0,0" Orientation="Horizontal">
+                    <TextBlock Text="Диаметр трубы (мм):" 
+                               Style="{StaticResource InfoTextStyle}"
+                               VerticalAlignment="Center"/>
+                    <TextBlock x:Name="PipeDiameterTextBlock"
+                               Width="80"
+                               Margin="10,0,0,0"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource InfoTextStyle}"
+                               FontWeight="SemiBold"
+                               Text="-"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        
+        <!-- Create Connection Buttons -->
+        <StackPanel Grid.Row="8" Orientation="Vertical">
+            <Button x:Name="CreateConnectionButton"
+                    Content="Создать присоединение (45°)" 
+                    Style="{StaticResource ActionButtonStyle}"
+                    Click="CreateConnectionButton_Click"
+                    IsEnabled="False"/>
+            
+            <Button x:Name="CreateLConnectionButton"
+                    Content="Создать L-образное присоединение" 
+                    Style="{StaticResource ActionButtonStyle}"
+                    Background="#6C757D"
+                    Click="CreateLConnectionButton_Click"
+                    IsEnabled="False"
+                    Margin="0,5,0,0"/>
+        </StackPanel>
+        
+    </Grid>
+</UserControl>

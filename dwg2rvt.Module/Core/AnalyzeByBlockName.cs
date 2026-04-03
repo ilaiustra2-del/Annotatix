@@ -21,9 +21,27 @@ namespace dwg2rvt.Module.Core
         {
             _doc = doc;
             
-            // Use dynamic path: %APPDATA%\Autodesk\Revit\Addins\2024\annotatix_dependencies\logs
+            // Detect Revit version dynamically from DLL path
+            string revitVersion = DetectRevitVersionFromDllPath();
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            _logDirectory = Path.Combine(appData, "Autodesk", "Revit", "Addins", "2024", "annotatix_dependencies", "logs");
+            _logDirectory = Path.Combine(appData, "Autodesk", "Revit", "Addins", revitVersion, "annotatix_dependencies", "logs");
+        }
+
+        private static string DetectRevitVersionFromDllPath()
+        {
+            try
+            {
+                string dllPath = typeof(AnalyzeByBlockName).Assembly.Location;
+                var dir = new System.IO.DirectoryInfo(Path.GetDirectoryName(dllPath));
+                while (dir != null)
+                {
+                    if (dir.Name.Length == 4 && int.TryParse(dir.Name, out int year) && year >= 2020 && year <= 2035)
+                        return dir.Name;
+                    dir = dir.Parent;
+                }
+            }
+            catch { }
+            return "2024";
         }
     
         private class ComponentInfo
@@ -107,6 +125,9 @@ namespace dwg2rvt.Module.Core
                 // Convert to BlockData for in-memory storage
                 foreach (var block in blocks)
                 {
+                    // Skip blocks with no geometry (ComputedCenter never assigned)
+                    if (block.ComputedCenter == null) continue;
+
                     BlockData blockData = new BlockData
                     {
                         Name = block.Name,
@@ -456,9 +477,9 @@ namespace dwg2rvt.Module.Core
         {
             try
             {
-                // Get BuildNumber.txt from the main folder where PluginsManager.dll is located
+                string revitVersion = DetectRevitVersionFromDllPath();
                 string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string buildNumberPath = Path.Combine(appData, "Autodesk", "Revit", "Addins", "2024", "annotatix_dependencies", "main", "BuildNumber.txt");
+                string buildNumberPath = Path.Combine(appData, "Autodesk", "Revit", "Addins", revitVersion, "annotatix_dependencies", "main", "BuildNumber.txt");
                 
                 if (File.Exists(buildNumberPath))
                 {

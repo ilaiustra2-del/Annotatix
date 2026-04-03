@@ -84,9 +84,9 @@ namespace PluginsManager.Core
                         pdbFileName = "ClashResolve.Module.pdb";
                         break;
                     default:
-                        dllFileName = $"{moduleTag}.Module.dll";
-                        pdbFileName = $"{moduleTag}.Module.pdb";
-                        break;
+                        // Unknown module tag — skip silently.
+                        DebugLogger.Log($"[MODULE-DOWNLOADER] Unknown module tag, skipping: {moduleTag}");
+                        return false;
                 }
                 
                 var dllPath = Path.Combine(moduleFolderPath, dllFileName);

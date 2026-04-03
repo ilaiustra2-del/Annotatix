@@ -63,8 +63,21 @@ namespace PluginsManager.Commands
             {
                 _revitHwnd = _uiApp?.MainWindowHandle ?? IntPtr.Zero;
                 _llProc    = LowLevelKeyboardCallback;
-                using (var mod = Process.GetCurrentProcess().MainModule)
-                    _llHook = SetWindowsHookEx(WH_KEYBOARD_LL, _llProc, GetModuleHandle(mod.ModuleName), 0);
+
+                // Process.MainModule may throw on .NET 8 (Revit 2025);
+                // fall back to IntPtr.Zero which still works for global keyboard hook.
+                IntPtr hMod = IntPtr.Zero;
+                try
+                {
+                    using (var mod = Process.GetCurrentProcess().MainModule)
+                        hMod = GetModuleHandle(mod?.ModuleName);
+                }
+                catch (Exception modEx)
+                {
+                    DebugLogger.Log($"[CLASH-SESSION] MainModule access failed (Revit 2025?): {modEx.Message} — using IntPtr.Zero");
+                }
+
+                _llHook = SetWindowsHookEx(WH_KEYBOARD_LL, _llProc, hMod, 0);
 
                 if (_llHook != IntPtr.Zero)
                     DebugLogger.Log("[CLASH-SESSION] Win32 keyboard hook installed");
@@ -300,7 +313,7 @@ namespace PluginsManager.Commands
                     bool injected = false;
 
                     // Find the Options Bar container via visual tree
-                    var (container, setContent, getContent, dialogBarFe) = FindOptionsBarContainer();
+                    var (container, setContent, getContent, dialogBarFe) = FindOptionsBarContainer(_uiApp?.MainWindowHandle ?? IntPtr.Zero);
                     if (container != null && setContent != null)
                     {
                         _optionsBarControl    = container;
@@ -400,13 +413,56 @@ namespace PluginsManager.Commands
         /// Walks the Revit main window visual tree to find the WPF ToolBar
         /// that Revit uses to render the Options Bar (the thin strip below the ribbon).
         /// </summary>
-        private static System.Windows.Window GetRevitMainWindow()
+        private static System.Windows.Window GetRevitMainWindow(IntPtr preferredHwnd = default)
         {
-            // Try WPF Application.Current.MainWindow first
-            var wpfMain = System.Windows.Application.Current?.MainWindow;
-            if (wpfMain != null) return wpfMain;
+            // 1. Try the preferred HWND (UIApplication.MainWindowHandle) — most reliable.
+            if (preferredHwnd != IntPtr.Zero)
+            {
+                try
+                {
+                    var src = System.Windows.Interop.HwndSource.FromHwnd(preferredHwnd);
+                    if (src?.RootVisual is System.Windows.Window wHwnd)
+                    {
+                        DebugLogger.Log($"[CLASH-SESSION] GetRevitMainWindow: found via UIApp HWND, type={wHwnd.GetType().Name}");
+                        return wHwnd;
+                    }
+                }
+                catch { }
+            }
 
-            // Fallback: find Revit main window via HwndSource
+            // 2. WPF Application.Current.MainWindow — sometimes wrong in Revit 2025
+            //    (points to ApplicationMenu/MenuWindow instead of main shell).
+            //    Accept only if it contains >50 visual children (a real shell window).
+            var wpfMain = System.Windows.Application.Current?.MainWindow;
+            if (wpfMain != null)
+            {
+                var children = FindAllVisualChildren<System.Windows.FrameworkElement>(wpfMain);
+                DebugLogger.Log($"[CLASH-SESSION] GetRevitMainWindow: Application.MainWindow type={wpfMain.GetType().Name} children={children.Count}");
+                if (children.Count > 50)
+                    return wpfMain;
+                DebugLogger.Log("[CLASH-SESSION] GetRevitMainWindow: Application.MainWindow has too few children, skipping");
+            }
+
+            // 3. Largest visible WPF Window by child count (most likely the Revit shell)
+            System.Windows.Window bestWindow = null;
+            int bestCount = 0;
+            if (System.Windows.Application.Current != null)
+            {
+                foreach (System.Windows.Window w in System.Windows.Application.Current.Windows)
+                {
+                    if (!w.IsVisible) continue;
+                    var cnt = FindAllVisualChildren<System.Windows.FrameworkElement>(w).Count;
+                    DebugLogger.Log($"[CLASH-SESSION] GetRevitMainWindow: Window {w.GetType().Name} children={cnt}");
+                    if (cnt > bestCount) { bestCount = cnt; bestWindow = w; }
+                }
+            }
+            if (bestWindow != null)
+            {
+                DebugLogger.Log($"[CLASH-SESSION] GetRevitMainWindow: using largest window {bestWindow.GetType().Name} children={bestCount}");
+                return bestWindow;
+            }
+
+            // 4. Last resort: Process.MainWindowHandle
             try
             {
                 var handle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
@@ -418,24 +474,16 @@ namespace PluginsManager.Commands
             }
             catch { }
 
-            // Last resort: find any visible Window
-            if (System.Windows.Application.Current != null)
-            {
-                foreach (System.Windows.Window w in System.Windows.Application.Current.Windows)
-                {
-                    if (w.IsVisible) return w;
-                }
-            }
             return null;
         }
 
         // Returns the OptionsBar container to inject our control into,
         // along with a setter action to set its content.
-        private static (System.Windows.DependencyObject container, Action<object> setContent, Func<object> getContent, System.Windows.FrameworkElement dialogBarFe) FindOptionsBarContainer()
+        private static (System.Windows.DependencyObject container, Action<object> setContent, Func<object> getContent, System.Windows.FrameworkElement dialogBarFe) FindOptionsBarContainer(IntPtr revitHwnd = default)
         {
             try
             {
-                var mainWin = GetRevitMainWindow();
+                var mainWin = GetRevitMainWindow(revitHwnd);
                 if (mainWin == null) return (null, null, null, null);
 
                 var allElements = FindAllVisualChildren<System.Windows.FrameworkElement>(mainWin);
@@ -464,6 +512,34 @@ namespace PluginsManager.Commands
                 if (allDialogBars.Count == 0)
                 {
                     DebugLogger.Log("[CLASH-SESSION] DialogBarControl not found in visual tree");
+
+                    // Diagnostic: dump all FrameworkElement type names in the visual tree
+                    // so we can identify how the Options Bar is named in this Revit version.
+                    var typeNames = new System.Collections.Generic.HashSet<string>();
+                    foreach (var el in allElements)
+                    {
+                        var typeName = el.GetType().Name;
+                        if (typeNames.Add(typeName)) // log each type only once
+                            DebugLogger.Log($"[CLASH-SESSION] VisualTree type: {typeName}");
+                    }
+
+                    // Also try broader search: any element whose type name contains "Dialog", "Options", "Bar", "Toolbar"
+                    foreach (var el in allElements)
+                    {
+                        var tn = el.GetType().Name;
+                        if (tn.IndexOf("Dialog", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            tn.IndexOf("Option", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            (tn.IndexOf("Bar", StringComparison.OrdinalIgnoreCase) >= 0 && tn.Length < 30))
+                        {
+                            try
+                            {
+                                var pt = el.TranslatePoint(new System.Windows.Point(0, 0), mainWin);
+                                DebugLogger.Log($"[CLASH-SESSION] Candidate: {tn} W={el.ActualWidth:F0} H={el.ActualHeight:F0} Y={pt.Y:F0} Visibility={el.Visibility}");
+                            }
+                            catch { DebugLogger.Log($"[CLASH-SESSION] Candidate: {tn} (transform failed)"); }
+                        }
+                    }
+
                     return (null, null, null, null);
                 }
 
@@ -814,12 +890,14 @@ namespace PluginsManager.Commands
                     }
                     catch { }
 
-                    // Show result
-                    string icon = success ? "✓" : "✗";
-                    MessageBox.Show($"{icon} {msg}",
-                        success ? "Обход выполнен" : "Ошибка обхода",
-                        MessageBoxButton.OK,
-                        success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+                    // Show result only on error; success is silent
+                    if (!success)
+                    {
+                        MessageBox.Show($"\u2717 {msg}",
+                            "Ошибка обхода",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Warning);
+                    }
                     // Reset hint after dialog closes
                     var fe2 = _optionsBarWpfControl as System.Windows.FrameworkElement;
                     var hint = fe2?.FindName("txtSelectionHint") as System.Windows.Controls.TextBlock;
