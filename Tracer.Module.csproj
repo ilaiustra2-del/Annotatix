@@ -64,4 +64,9 @@
     <Page Include="Tracer.Module\UI\*.xaml" SubType="Designer" Generator="MSBuild:Compile" />
   </ItemGroup>
 
+  <!-- Include icon resources -->
+  <ItemGroup>
+    <Resource Include="Tracer.Module\UI\icons\Tracer_icons\*.png" />
+  </ItemGroup>
+
 </Project>

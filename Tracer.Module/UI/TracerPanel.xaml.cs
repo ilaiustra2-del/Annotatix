@@ -19,6 +19,7 @@ namespace Tracer.Module.UI
         private readonly ExternalEvent _selectRiserEvent;
         private readonly ExternalEvent _createConnectionEvent;
         private readonly ExternalEvent _createLConnectionEvent;
+        private readonly ExternalEvent _createBottomConnectionEvent;
         
         // Selected elements data
         private MainLineData _selectedMainLine;
@@ -35,7 +36,8 @@ namespace Tracer.Module.UI
             ExternalEvent selectMainPipeEvent,
             ExternalEvent selectRiserEvent,
             ExternalEvent createConnectionEvent,
-            ExternalEvent createLConnectionEvent)
+            ExternalEvent createLConnectionEvent,
+            ExternalEvent createBottomConnectionEvent)
         {
             InitializeComponent();
             
@@ -44,8 +46,35 @@ namespace Tracer.Module.UI
             _selectRiserEvent = selectRiserEvent;
             _createConnectionEvent = createConnectionEvent;
             _createLConnectionEvent = createLConnectionEvent;
+            _createBottomConnectionEvent = createBottomConnectionEvent;
             
             DebugLogger.Log("[TRACER-PANEL] Panel initialized");
+        }
+
+        private void TracerPanel_Loaded(object sender, RoutedEventArgs e)
+        {
+            // Setup hover effects for icon buttons
+            SetupIconButtonHover(CreateConnectionButton, Overlay45);
+            SetupIconButtonHover(CreateLConnectionButton, OverlayL);
+            SetupIconButtonHover(CreateBottomConnectionButton, OverlayBottom);
+        }
+
+        private void SetupIconButtonHover(Button button, Border overlay)
+        {
+            button.MouseEnter += (s, e) =>
+            {
+                if (button.IsEnabled)
+                    overlay.Opacity = 1;
+            };
+            button.MouseLeave += (s, e) =>
+            {
+                overlay.Opacity = 0;
+            };
+            button.IsEnabledChanged += (s, e) =>
+            {
+                if (!button.IsEnabled)
+                    overlay.Opacity = 0;
+            };
         }
 
         #region Button Click Handlers
@@ -117,6 +146,7 @@ namespace Tracer.Module.UI
                             UpdateRiserUI();
                             CreateConnectionButton.IsEnabled = _connectionPoint != null;
                             CreateLConnectionButton.IsEnabled = _connectionPoint != null;
+                            CreateBottomConnectionButton.IsEnabled = _connectionPoint != null;
                             DebugLogger.Log($"[TRACER-PANEL] Riser selected: {_selectedRiser.Name}");
                         }
                     }
@@ -201,6 +231,10 @@ namespace Tracer.Module.UI
                     return;
                 }
                 
+                // Get slope value
+                double slope = GetSelectedSlope();
+                DebugLogger.Log($"[TRACER-PANEL] Creating 45° connection with slope: {slope}% (UseMainLineSlope: {UseMainLineSlopeCheckBox.IsChecked})");
+                
                 // Store data for ExternalEvent handler - using reflection to avoid circular dependency
                 var handlerType = System.Type.GetType("PluginsManager.Commands.TracerCreateConnectionHandler, PluginsManager");
                 if (handlerType != null)
@@ -211,7 +245,7 @@ namespace Tracer.Module.UI
                         method.Invoke(null, new object[] { 
                             _selectedMainLine.ElementId, _selectedRiser.ElementId,
                             _connectionPoint, _riserConnectionPoint, _pipeDiameter,
-                            _selectedMainLine.Slope
+                            slope
                         });
                     }
                 }
@@ -256,6 +290,9 @@ namespace Tracer.Module.UI
                     return;
                 }
                 
+                // Get slope value
+                double slope = GetSelectedSlope();
+                
                 // Store data for ExternalEvent handler
                 var handlerType = System.Type.GetType("PluginsManager.Commands.TracerCreateLConnectionHandler, PluginsManager");
                 if (handlerType != null)
@@ -266,7 +303,7 @@ namespace Tracer.Module.UI
                         method.Invoke(null, new object[] { 
                             _selectedMainLine.ElementId, _selectedRiser.ElementId,
                             _connectionPoint, _riserConnectionPoint, _pipeDiameter,
-                            _selectedMainLine.Slope, _selectedMainLine.StartPoint, _selectedMainLine.EndPoint
+                            slope, _selectedMainLine.StartPoint, _selectedMainLine.EndPoint
                         });
                     }
                 }
@@ -288,6 +325,88 @@ namespace Tracer.Module.UI
                 DebugLogger.Log($"[TRACER-PANEL] ERROR creating L-connection: {ex.Message}");
                 MessageBox.Show($"Ошибка создания L-образного подключения: {ex.Message}", "Ошибка", 
                     MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void CreateBottomConnectionButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                DebugLogger.Log("[TRACER-PANEL] Create bottom connection button clicked");
+                
+                if (_selectedMainLine == null || _selectedRiser == null)
+                {
+                    MessageBox.Show("Необходимо выбрать магистраль и стояк", "Ошибка", 
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                
+                if (_connectionPoint == null || _riserConnectionPoint == null)
+                {
+                    MessageBox.Show("Не удалось рассчитать точку подключения. Проверьте положение элементов.", "Ошибка", 
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                // Get slope value
+                double slope = GetSelectedSlope();
+                
+                // Store data for ExternalEvent handler
+                var handlerType = System.Type.GetType("PluginsManager.Commands.TracerCreateBottomConnectionHandler, PluginsManager");
+                if (handlerType != null)
+                {
+                    var method = handlerType.GetMethod("SetConnectionData", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    if (method != null)
+                    {
+                        method.Invoke(null, new object[] { 
+                            _selectedMainLine.ElementId, _selectedRiser.ElementId,
+                            _connectionPoint, _riserConnectionPoint, _pipeDiameter,
+                            slope, _selectedMainLine.StartPoint, _selectedMainLine.EndPoint
+                        });
+                    }
+                }
+                else
+                {
+                    DebugLogger.Log("[TRACER-PANEL] ERROR: Could not find TracerCreateBottomConnectionHandler");
+                    MessageBox.Show("Ошибка: не найден обработчик создания нижнего соединения", "Ошибка",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                // Raise ExternalEvent to create bottom connection in Revit API context
+                _createBottomConnectionEvent.Raise();
+                
+                DebugLogger.Log("[TRACER-PANEL] ExternalEvent raised for bottom connection creation");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[TRACER-PANEL] ERROR creating bottom connection: {ex.Message}");
+                MessageBox.Show($"Ошибка создания нижнего подключения: {ex.Message}", "Ошибка", 
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private double GetSelectedSlope()
+        {
+            if (UseMainLineSlopeCheckBox.IsChecked == true)
+            {
+                return _selectedMainLine?.Slope ?? 2.0;
+            }
+            else
+            {
+                if (double.TryParse(PipeSlopeTextBox.Text, out double slope))
+                {
+                    return slope;
+                }
+                return 2.0; // Default slope
+            }
+        }
+
+        private void UseMainLineSlopeCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
+        {
+            if (PipeSlopeTextBox != null && UseMainLineSlopeCheckBox != null)
+            {
+                PipeSlopeTextBox.IsEnabled = !UseMainLineSlopeCheckBox.IsChecked.GetValueOrDefault(true);
             }
         }
 

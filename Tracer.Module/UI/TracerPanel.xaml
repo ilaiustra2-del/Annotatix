@@ -4,7 +4,8 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              mc:Ignorable="d" 
-             d:DesignHeight="600" d:DesignWidth="500">
+             d:DesignHeight="600" d:DesignWidth="500"
+             Loaded="TracerPanel_Loaded">
     
     <UserControl.Resources>
         <Style x:Key="HeaderTextStyle" TargetType="TextBlock">
@@ -88,10 +89,29 @@
         <Style x:Key="StatusBorderStyle" TargetType="Border">
             <Setter Property="Padding" Value="10"/>
             <Setter Property="Margin" Value="0,5"/>
-            <Setter Property="Background" Value="#F8F9FA"/>
+            <Setter Property="Background" Value="White"/>
             <Setter Property="BorderBrush" Value="#DEE2E6"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        
+        <Style x:Key="IconImageStyle" TargetType="Image">
+            <Setter Property="Width" Value="150"/>
+            <Setter Property="Height" Value="150"/>
+        </Style>
+        
+        <Style x:Key="IconButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </UserControl.Resources>
     
@@ -114,7 +134,7 @@
                    Style="{StaticResource HeaderTextStyle}"/>
         
         <TextBlock Grid.Row="1" 
-                   Text="Присоединение стояков к магистральным линиям под углом 45°" 
+                   Text="Присоединение стояков к магистральным линиям" 
                    Style="{StaticResource InfoTextStyle}"
                    TextWrapping="Wrap"
                    Margin="0,0,0,15"/>
@@ -191,25 +211,88 @@
                                FontWeight="SemiBold"
                                Text="-"/>
                 </StackPanel>
+                
+                <!-- Slope Settings -->
+                <StackPanel Margin="0,15,0,0">
+                    <TextBlock Text="Настройки уклона:" 
+                               Style="{StaticResource InfoTextStyle}"
+                               FontWeight="SemiBold"/>
+                    
+                    <CheckBox x:Name="UseMainLineSlopeCheckBox"
+                              Content="Использовать значение уклона магистрали"
+                              IsChecked="True"
+                              Margin="0,5,0,5"
+                              Checked="UseMainLineSlopeCheckBox_CheckedChanged"
+                              Unchecked="UseMainLineSlopeCheckBox_CheckedChanged"/>
+                    
+                    <StackPanel Orientation="Horizontal" Margin="20,0,0,0">
+                        <TextBlock Text="Уклон трубы (%):" 
+                                   Style="{StaticResource InfoTextStyle}"
+                                   VerticalAlignment="Center"/>
+                        <TextBox x:Name="PipeSlopeTextBox"
+                                 Width="80"
+                                 Margin="10,0,0,0"
+                                 VerticalAlignment="Center"
+                                 IsEnabled="False"
+                                 Text="2.0"/>
+                    </StackPanel>
+                </StackPanel>
             </StackPanel>
         </Border>
         
         <!-- Create Connection Buttons -->
-        <StackPanel Grid.Row="8" Orientation="Vertical">
+        <UniformGrid Grid.Row="8" Columns="3" Margin="0,10,0,0" Background="White">
             <Button x:Name="CreateConnectionButton"
-                    Content="Создать присоединение (45°)" 
-                    Style="{StaticResource ActionButtonStyle}"
+                    Style="{StaticResource IconButtonStyle}"
                     Click="CreateConnectionButton_Click"
-                    IsEnabled="False"/>
+                    IsEnabled="False"
+                    Margin="10,0"
+                    ToolTip="Присоединение под 45°">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                    <Border x:Name="IconBorder45" BorderBrush="Black" BorderThickness="1" Width="150" Height="150" Background="Transparent">
+                        <Grid>
+                            <Image Source="icons/Tracer_icons/Tracer_45.png" Style="{StaticResource IconImageStyle}"/>
+                            <Border x:Name="Overlay45" Background="#40606060" Opacity="0"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock Text="45°" FontSize="14" FontWeight="SemiBold" Foreground="Black" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                </StackPanel>
+            </Button>
             
             <Button x:Name="CreateLConnectionButton"
-                    Content="Создать L-образное присоединение" 
-                    Style="{StaticResource ActionButtonStyle}"
-                    Background="#6C757D"
+                    Style="{StaticResource IconButtonStyle}"
                     Click="CreateLConnectionButton_Click"
                     IsEnabled="False"
-                    Margin="0,5,0,0"/>
-        </StackPanel>
+                    Margin="10,0"
+                    ToolTip="L-образное присоединение">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                    <Border x:Name="IconBorderL" BorderBrush="Black" BorderThickness="1" Width="150" Height="150" Background="Transparent">
+                        <Grid>
+                            <Image Source="icons/Tracer_icons/Tracer_L.png" Style="{StaticResource IconImageStyle}"/>
+                            <Border x:Name="OverlayL" Background="#40606060" Opacity="0"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock Text="L-образное" FontSize="14" FontWeight="SemiBold" Foreground="Black" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                </StackPanel>
+            </Button>
+            
+            <Button x:Name="CreateBottomConnectionButton"
+                    Style="{StaticResource IconButtonStyle}"
+                    Click="CreateBottomConnectionButton_Click"
+                    IsEnabled="False"
+                    Margin="10,0"
+                    ToolTip="Присоединение снизу (перпендикулярно)">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                    <Border x:Name="IconBorderBottom" BorderBrush="Black" BorderThickness="1" Width="150" Height="150" Background="Transparent">
+                        <Grid>
+                            <Image Source="icons/Tracer_icons/Tracer_Bottom.png" Style="{StaticResource IconImageStyle}"/>
+                            <Border x:Name="OverlayBottom" Background="#40606060" Opacity="0"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock Text="Снизу" FontSize="14" FontWeight="SemiBold" Foreground="Black" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                </StackPanel>
+            </Button>
+        </UniformGrid>
         
     </Grid>
 </UserControl>
