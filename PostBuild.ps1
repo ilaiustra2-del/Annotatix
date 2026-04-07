@@ -231,6 +231,16 @@ foreach ($RevitVer in $RevitVersions) {
         Write-Host "  → $RevitVer/main/UI/icons/"
     }
 
+    # Copy Tracer icons to main folder (for ribbon buttons)
+    $TracerIcons = @("Tracer_45.png", "Tracer_L.png", "Tracer_Bottom.png")
+    foreach ($icon in $TracerIcons) {
+        $iconSource = [System.IO.Path]::Combine($SourceIcons, $icon)
+        if (Test-Path $iconSource) {
+            Copy-Item -Path $iconSource -Destination $MainFolder -Force
+            Write-Host "  → $RevitVer/main/$icon"
+        }
+    }
+
     # Create .addin file inside the versioned subfolder
     $AddinFile    = [System.IO.Path]::Combine($VerSubDir, "Annotatix.addin")
     $AssemblyPath = "annotatix_dependencies\main\PluginsManager.dll"

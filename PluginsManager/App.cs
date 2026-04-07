@@ -96,6 +96,9 @@ namespace PluginsManager
                 {
                     RibbonPanel panelClash = application.CreateRibbonPanel(tabName, "Clash Resolve");
 
+                    // Path to Clash Resolve icon
+                    string clashResolveIconPath = Path.Combine(assemblyDir, "UI", "icons", "Clash_Resolve.png");
+
                     PushButtonData clashBtnData = new PushButtonData(
                         "ClashResolveRibbon",
                         "Исправление\nколлизий",
@@ -121,15 +124,17 @@ namespace PluginsManager
                         "Выберите трубы A (обходящие), затем трубы B (препятствия), \n" +
                         "затем настройте параметры и нажмите Готово.";
                     PushButton multiClashBtn = panelClash.AddItem(multiClashBtnData) as PushButton;
-                    if (bestIconPath != null)
-                    {
-                        try { multiClashBtn.LargeImage = new BitmapImage(new Uri(bestIconPath)); } catch { }
-                    }
 
-                    // Try to use the same icon as the hub button
-                    if (bestIconPath != null)
+                    // Set Clash Resolve icon for both buttons
+                    if (File.Exists(clashResolveIconPath))
                     {
-                        try { clashBtn.LargeImage = new BitmapImage(new Uri(bestIconPath)); } catch { }
+                        try
+                        {
+                            var clashIcon = new BitmapImage(new Uri(clashResolveIconPath));
+                            clashBtn.LargeImage = clashIcon;
+                            multiClashBtn.LargeImage = clashIcon;
+                        }
+                        catch { }
                     }
 
                     Core.DebugLogger.Log("[APP] Clash Resolve ribbon panel created");
@@ -137,6 +142,75 @@ namespace PluginsManager
                 catch (Exception ex)
                 {
                     Core.DebugLogger.Log($"[APP] WARNING: Could not create Clash Resolve panel: {ex.Message}");
+                }
+
+                // ── Tracer ribbon panel ──────────────────────────────
+                try
+                {
+                    RibbonPanel panelTracer = application.CreateRibbonPanel(tabName, "Tracer");
+
+                    // 45-degree connection button
+                    PushButtonData tracer45BtnData = new PushButtonData(
+                        "Tracer45DegreeRibbon",
+                        "Присоединение\nпод 45°",
+                        assemblyPath,
+                        "PluginsManager.Commands.Tracer45DegreeRibbonCommand"
+                    );
+                    tracer45BtnData.ToolTip =
+                        "Присоединение стояка к магистрали под углом 45°.\n" +
+                        "Выберите магистраль, затем стояки, затем настройте уклон.";
+
+                    PushButton tracer45Btn = panelTracer.AddItem(tracer45BtnData) as PushButton;
+
+                    // L-shaped connection button
+                    PushButtonData tracerLBtnData = new PushButtonData(
+                        "TracerLShapedRibbon",
+                        "L-образное\nприсоединение",
+                        assemblyPath,
+                        "PluginsManager.Commands.TracerLShapedRibbonCommand"
+                    );
+                    tracerLBtnData.ToolTip =
+                        "L-образное присоединение стояка к магистрали.\n" +
+                        "Выберите магистраль, затем стояки, затем настройте уклон.";
+
+                    PushButton tracerLBtn = panelTracer.AddItem(tracerLBtnData) as PushButton;
+
+                    // Bottom connection button
+                    PushButtonData tracerBottomBtnData = new PushButtonData(
+                        "TracerBottomRibbon",
+                        "Присоединение\nснизу",
+                        assemblyPath,
+                        "PluginsManager.Commands.TracerBottomRibbonCommand"
+                    );
+                    tracerBottomBtnData.ToolTip =
+                        "Присоединение стояка к магистрали снизу.\n" +
+                        "Выберите магистраль, затем стояки, затем настройте уклон.";
+
+                    PushButton tracerBottomBtn = panelTracer.AddItem(tracerBottomBtnData) as PushButton;
+
+                    // Set icons for Tracer buttons
+                    string tracerIcon45 = Path.Combine(assemblyDir, "Tracer_45.png");
+                    string tracerIconL = Path.Combine(assemblyDir, "Tracer_L.png");
+                    string tracerIconBottom = Path.Combine(assemblyDir, "Tracer_Bottom.png");
+
+                    if (File.Exists(tracerIcon45))
+                    {
+                        try { tracer45Btn.LargeImage = new BitmapImage(new Uri(tracerIcon45)); } catch { }
+                    }
+                    if (File.Exists(tracerIconL))
+                    {
+                        try { tracerLBtn.LargeImage = new BitmapImage(new Uri(tracerIconL)); } catch { }
+                    }
+                    if (File.Exists(tracerIconBottom))
+                    {
+                        try { tracerBottomBtn.LargeImage = new BitmapImage(new Uri(tracerIconBottom)); } catch { }
+                    }
+
+                    Core.DebugLogger.Log("[APP] Tracer ribbon panel created");
+                }
+                catch (Exception ex)
+                {
+                    Core.DebugLogger.Log($"[APP] WARNING: Could not create Tracer panel: {ex.Message}");
                 }
 
                 // ── Inject keyboard shortcuts (CR / СК) if absent ──────────
