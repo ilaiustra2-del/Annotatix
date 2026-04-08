@@ -235,6 +235,10 @@ namespace Tracer.Module.UI
                 double slope = GetSelectedSlope();
                 DebugLogger.Log($"[TRACER-PANEL] Creating 45° connection with slope: {slope}% (UseMainLineSlope: {UseMainLineSlopeCheckBox.IsChecked})");
                 
+                // Get add fittings flag
+                bool addFittings = AddFittingsCheckBox.IsChecked == true;
+                DebugLogger.Log($"[TRACER-PANEL] Add fittings: {addFittings}");
+                
                 // Store data for ExternalEvent handler - using reflection to avoid circular dependency
                 var handlerType = System.Type.GetType("PluginsManager.Commands.TracerCreateConnectionHandler, PluginsManager");
                 if (handlerType != null)
@@ -245,7 +249,7 @@ namespace Tracer.Module.UI
                         method.Invoke(null, new object[] { 
                             _selectedMainLine.ElementId, _selectedRiser.ElementId,
                             _connectionPoint, _riserConnectionPoint, _pipeDiameter,
-                            slope
+                            slope, addFittings
                         });
                     }
                 }
@@ -293,6 +297,10 @@ namespace Tracer.Module.UI
                 // Get slope value
                 double slope = GetSelectedSlope();
                 
+                // Get add fittings flag
+                bool addFittings = AddFittingsCheckBox.IsChecked == true;
+                DebugLogger.Log($"[TRACER-PANEL] Add fittings: {addFittings}");
+                
                 // Store data for ExternalEvent handler
                 var handlerType = System.Type.GetType("PluginsManager.Commands.TracerCreateLConnectionHandler, PluginsManager");
                 if (handlerType != null)
@@ -303,7 +311,7 @@ namespace Tracer.Module.UI
                         method.Invoke(null, new object[] { 
                             _selectedMainLine.ElementId, _selectedRiser.ElementId,
                             _connectionPoint, _riserConnectionPoint, _pipeDiameter,
-                            slope, _selectedMainLine.StartPoint, _selectedMainLine.EndPoint
+                            slope, _selectedMainLine.StartPoint, _selectedMainLine.EndPoint, addFittings
                         });
                     }
                 }
@@ -351,6 +359,10 @@ namespace Tracer.Module.UI
                 // Get slope value
                 double slope = GetSelectedSlope();
                 
+                // Get add fittings flag
+                bool addFittings = AddFittingsCheckBox.IsChecked == true;
+                DebugLogger.Log($"[TRACER-PANEL] Add fittings: {addFittings}");
+                
                 // Store data for ExternalEvent handler
                 var handlerType = System.Type.GetType("PluginsManager.Commands.TracerCreateBottomConnectionHandler, PluginsManager");
                 if (handlerType != null)
@@ -361,7 +373,7 @@ namespace Tracer.Module.UI
                         method.Invoke(null, new object[] { 
                             _selectedMainLine.ElementId, _selectedRiser.ElementId,
                             _connectionPoint, _riserConnectionPoint, _pipeDiameter,
-                            slope, _selectedMainLine.StartPoint, _selectedMainLine.EndPoint
+                            slope, _selectedMainLine.StartPoint, _selectedMainLine.EndPoint, addFittings
                         });
                     }
                 }
@@ -422,6 +434,14 @@ namespace Tracer.Module.UI
                 MainLineDetailsText.Text = $"Диаметр: {_selectedMainLine.Diameter * 304.8:F0} мм | " +
                     $"Уклон: {_selectedMainLine.Slope:F2}% | " +
                     $"Длина: {(_selectedMainLine.EndPoint - _selectedMainLine.StartPoint).GetLength() * 304.8:F0} мм";
+                
+                // Update slope textbox with real main line slope
+                if (PipeSlopeTextBox != null)
+                {
+                    PipeSlopeTextBox.Text = _selectedMainLine.Slope.ToString("F2");
+                }
+                
+                UpdateStatus($"Магистраль выбрана: {_selectedMainLine.Name}. Теперь выберите стояк.");
             }
         }
 
@@ -438,12 +458,22 @@ namespace Tracer.Module.UI
                 {
                     ConnectionHeightTextBlock.Text = $"{_connectionHeight * 304.8:F0}";
                     PipeDiameterTextBlock.Text = $"{_pipeDiameter * 304.8:F0}";
+                    UpdateStatus($"Стояк выбран: {_selectedRiser.Name}. Выберите тип присоединения.");
                 }
                 else
                 {
                     ConnectionHeightTextBlock.Text = "Ошибка";
                     PipeDiameterTextBlock.Text = "-";
+                    UpdateStatus("Ошибка расчета точки подключения. Проверьте положение элементов.");
                 }
+            }
+        }
+
+        private void UpdateStatus(string message)
+        {
+            if (txtStatus != null)
+            {
+                txtStatus.Text = message;
             }
         }
 

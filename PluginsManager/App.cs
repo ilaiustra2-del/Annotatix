@@ -13,6 +13,10 @@ namespace PluginsManager
     [Regeneration(RegenerationOption.Manual)]
     public class App : IExternalApplication
     {
+        // Auto-authentication state tracking
+        public static bool AutoAuthInProgress { get; private set; } = false;
+        public static bool AutoAuthCompleted { get; private set; } = false;
+        
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -44,6 +48,25 @@ namespace PluginsManager
                 Core.DebugLogger.Log($"[APP] Log file: {Core.DebugLogger.GetLogFilePath()}");
                 Core.DebugLogger.LogSeparator();
                 Core.DebugLogger.Log("");
+
+                // ── Auto-authenticate on startup (background task) ─────────────────
+                try
+                {
+                    if (Core.LocalAuthStorage.HasSavedAuth())
+                    {
+                        Core.DebugLogger.Log("[APP] Found saved auth data, starting background auto-authentication...");
+                        // Start async auto-authentication without blocking startup
+                        System.Threading.Tasks.Task.Run(async () => await PerformAutoAuthAsync());
+                    }
+                    else
+                    {
+                        Core.DebugLogger.Log("[APP] No saved auth data, skipping auto-authentication");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Core.DebugLogger.Log($"[APP] ERROR starting auto-auth: {ex.Message}");
+                }
                 
                 // Create ribbon tab
                 string tabName = "Annotatix";
@@ -308,6 +331,112 @@ namespace PluginsManager
         public Result OnShutdown(UIControlledApplication application)
         {
             return Result.Succeeded;
+        }
+
+        /// <summary>
+        /// Performs auto-authentication in background when Revit starts.
+        /// Loads user modules if authentication is successful.
+        /// </summary>
+        private static async System.Threading.Tasks.Task PerformAutoAuthAsync()
+        {
+            try
+            {
+                AutoAuthInProgress = true;
+                Core.DebugLogger.Log("[APP-AUTOAUTH] Starting background auto-authentication...");
+                
+                var authService = new Core.AuthService();
+                var result = await authService.TryAutoAuthenticateAsync();
+                
+                if (result.IsSuccess)
+                {
+                    Core.DebugLogger.Log("[APP-AUTOAUTH] Auto-authentication successful!");
+                    Core.DebugLogger.Log($"[APP-AUTOAUTH] User: {result.Login}");
+                    
+                    // Set CurrentUser so that other parts of the app know we're authenticated
+                    Core.AuthService.CurrentUser = result;
+                    Core.DebugLogger.Log("[APP-AUTOAUTH] CurrentUser set in AuthService");
+                    
+                    var moduleTags = result.Modules?.Select(m => m.ModuleTag).ToList() ?? new System.Collections.Generic.List<string>();
+                    Core.DebugLogger.Log($"[APP-AUTOAUTH] Available modules: {string.Join(", ", moduleTags)}");
+                    
+                    // Load modules in background
+                    if (moduleTags.Count > 0)
+                    {
+                        Core.DebugLogger.Log("[APP-AUTOAUTH] Loading modules...");
+                        int loadedCount = 0;
+                        
+                        // Get modules directory path
+                        var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                        var assemblyPath = Path.GetDirectoryName(assembly.Location);
+                        var modulesPath = Path.GetDirectoryName(assemblyPath);
+                        Core.DebugLogger.Log($"[APP-AUTOAUTH] Modules path: {modulesPath}");
+                        
+                        foreach (var moduleTag in moduleTags)
+                        {
+                            try
+                            {
+                                // Map module tag to DLL name and folder
+                                string moduleFolder = moduleTag.ToLower() switch
+                                {
+                                    "dwg2rvt" => "dwg2rvt",
+                                    "hvac" => "hvac",
+                                    "familysync" => "family_sync",
+                                    "autonumbering" => "autonumbering",
+                                    "clash_resolve" => "clash_resolve",
+                                    "tracer" => "tracer",
+                                    "full" => null, // Special case - loads all modules
+                                    _ => moduleTag.ToLower()
+                                };
+                                
+                                if (moduleFolder == null) continue; // Skip "full" tag
+                                
+                                string dllName = moduleTag.ToLower() switch
+                                {
+                                    "dwg2rvt" => "dwg2rvt.Module.dll",
+                                    "hvac" => "HVAC.Module.dll",
+                                    "familysync" => "FamilySync.Module.dll",
+                                    "autonumbering" => "AutoNumbering.Module.dll",
+                                    "clash_resolve" => "ClashResolve.Module.dll",
+                                    "tracer" => "Tracer.Module.dll",
+                                    _ => $"{moduleTag}.Module.dll"
+                                };
+                                
+                                var moduleDllPath = Path.Combine(modulesPath, moduleFolder, dllName);
+                                Core.DebugLogger.Log($"[APP-AUTOAUTH] Loading {moduleTag} from: {moduleDllPath}");
+                                
+                                if (Core.DynamicModuleLoader.LoadModule(moduleTag, moduleDllPath))
+                                {
+                                    loadedCount++;
+                                    Core.DebugLogger.Log($"[APP-AUTOAUTH] ✓ Module loaded: {moduleTag}");
+                                }
+                                else
+                                {
+                                    Core.DebugLogger.Log($"[APP-AUTOAUTH] ✗ Failed to load module: {moduleTag}");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Core.DebugLogger.Log($"[APP-AUTOAUTH] Error loading module {moduleTag}: {ex.Message}");
+                            }
+                        }
+                        Core.DebugLogger.Log($"[APP-AUTOAUTH] Loaded {loadedCount}/{moduleTags.Count} modules");
+                    }
+                }
+                else
+                {
+                    Core.DebugLogger.Log($"[APP-AUTOAUTH] Auto-authentication failed: {result.ErrorMessage}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Core.DebugLogger.Log($"[APP-AUTOAUTH] ERROR: {ex.Message}");
+            }
+            finally
+            {
+                AutoAuthInProgress = false;
+                AutoAuthCompleted = true;
+                Core.DebugLogger.Log("[APP-AUTOAUTH] Auto-authentication process completed");
+            }
         }
     }
 }

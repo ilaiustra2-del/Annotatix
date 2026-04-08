@@ -23,6 +23,11 @@ namespace Tracer.Module.UI
         private int _currentStage = 1;
         // Whether we have valid selection for current stage
         private bool _hasValidSelection = false;
+        
+        /// <summary>
+        /// Gets whether to add fittings between riser and pipe
+        /// </summary>
+        public bool AddFittings => chkAddFittings.IsChecked == true;
 
         // ----------------------------------------------------------------
         // Constructor

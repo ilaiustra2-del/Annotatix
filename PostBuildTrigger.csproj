@@ -16,6 +16,9 @@
     <ProjectReference Include="FamilySync.Module.csproj" />
     <ProjectReference Include="dwg2rvt.Module.csproj" />
     <ProjectReference Include="HVAC.Module.csproj" />
+    <ProjectReference Include="Tracer.Module.csproj" />
+    <ProjectReference Include="AutoNumbering.Module.csproj" />
+    <ProjectReference Include="ClashResolve.Module.csproj" />
   </ItemGroup>
 
   <!-- Add a dummy file to compile (project won't build without any source) -->

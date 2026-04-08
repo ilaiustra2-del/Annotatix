@@ -53,32 +53,42 @@
 
         <!-- Stage 3: Configure Slope -->
         <StackPanel x:Name="panelStage3" Orientation="Horizontal" Visibility="Collapsed">
-            <TextBlock Text="Значение уклона:"
-                       Foreground="#CCCCCC"
-                       VerticalAlignment="Center"
-                       Margin="4,0,4,0"/>
-            <TextBox x:Name="txtSlope"
-                     Width="50"
-                     Text="2.0"
-                     Background="#3A3A3A"
-                     Foreground="#E8E8E8"
-                     BorderBrush="#666666"
-                     CaretBrush="#E8E8E8"
-                     VerticalAlignment="Center"
-                     VerticalContentAlignment="Center"
-                     Padding="3,1"
-                     Margin="0,0,6,0"
-                     IsEnabled="False"
-                     Opacity="0.5"
-                     TextChanged="TxtSlope_TextChanged"/>
-            <CheckBox x:Name="chkUseMainLineSlope"
-                      Content="Использовать уклон магистрали"
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="Уклон:"
+                           Foreground="#CCCCCC"
+                           VerticalAlignment="Center"
+                           Margin="4,0,2,0"/>
+                <TextBox x:Name="txtSlope"
+                         Width="40"
+                         Text="2.0"
+                         Background="#3A3A3A"
+                         Foreground="#E8E8E8"
+                         BorderBrush="#666666"
+                         CaretBrush="#E8E8E8"
+                         VerticalAlignment="Center"
+                         VerticalContentAlignment="Center"
+                         Padding="2,1"
+                         Margin="0,0,4,0"
+                         IsEnabled="False"
+                         Opacity="0.5"
+                         TextChanged="TxtSlope_TextChanged"/>
+                <CheckBox x:Name="chkUseMainLineSlope"
+                          Content="Как у магистрали"
+                          IsChecked="True"
+                          Foreground="#E8E8E8"
+                          VerticalAlignment="Center"
+                          Margin="0,0,8,0"
+                          Checked="ChkUseMainLineSlope_Changed"
+                          Unchecked="ChkUseMainLineSlope_Changed"/>
+            </StackPanel>
+            
+            <CheckBox x:Name="chkAddFittings"
+                      Content="Добавить фитинги"
                       IsChecked="True"
                       Foreground="#E8E8E8"
                       VerticalAlignment="Center"
-                      Margin="0,0,8,0"
-                      Checked="ChkUseMainLineSlope_Changed"
-                      Unchecked="ChkUseMainLineSlope_Changed"/>
+                      Margin="4,0,4,0"
+                      ToolTip="Добавлять соединительные детали (отводы) между сегментами труб"/>
         </StackPanel>
 
         <Rectangle Width="1" Fill="#666666" Margin="4,3"/>

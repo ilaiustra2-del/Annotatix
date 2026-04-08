@@ -757,13 +757,26 @@ namespace PluginsManager.Commands
                 return;
             }
 
+            // Get AddFittings value from OptionsBar
+            bool addFittings = false;
+            if (_optionsBarWpfControl != null)
+            {
+                var addFittingsProp = _optionsBarWpfControl.GetType().GetProperty("AddFittings");
+                if (addFittingsProp != null)
+                {
+                    addFittings = (bool)(addFittingsProp.GetValue(_optionsBarWpfControl) ?? false);
+                }
+            }
+            DebugLogger.Log($"[TRACER-SESSION] Add fittings: {addFittings}");
+            
             // Set data for the execute handler
             _execHandler.SetData(
                 _selectedMainLineId,
                 _selectedRiserIds,
                 _connectionType,
                 _slopeValue,
-                _useMainLineSlope);
+                _useMainLineSlope,
+                addFittings);
 
             _execEvent.Raise();
             Deactivate();
@@ -784,16 +797,18 @@ namespace PluginsManager.Commands
         private TracerSession.TracerConnectionType _connectionType;
         private double _slopeValue;
         private bool _useMainLineSlope;
+        private bool _addFittings;
 
         public void SetData(ElementId mainLineId, List<ElementId> riserIds,
             TracerSession.TracerConnectionType connectionType,
-            double slopeValue, bool useMainLineSlope)
+            double slopeValue, bool useMainLineSlope, bool addFittings = false)
         {
             _mainLineId = mainLineId;
             _riserIds = riserIds;
             _connectionType = connectionType;
             _slopeValue = slopeValue;
             _useMainLineSlope = useMainLineSlope;
+            _addFittings = addFittings;
         }
 
         public void Execute(UIApplication app)
@@ -910,7 +925,7 @@ namespace PluginsManager.Commands
                     setDataMethod?.Invoke(null, new object[] {
                         mainLineId, riserId,
                         connectionPoint, endPoint, riserDiameter,
-                        slope
+                        slope, _addFittings
                     });
 
                     // Create and execute the handler directly
@@ -1005,7 +1020,7 @@ namespace PluginsManager.Commands
                     setDataMethod?.Invoke(null, new object[] {
                         mainLineId, riserId,
                         connectionPoint, endPoint, riserDiameter,
-                        slope, mainStartPoint, mainEndPoint
+                        slope, mainStartPoint, mainEndPoint, _addFittings
                     });
 
                     // Create and execute the handler directly
@@ -1100,7 +1115,7 @@ namespace PluginsManager.Commands
                     setDataMethod?.Invoke(null, new object[] {
                         mainLineId, riserId,
                         connectionPoint, endPoint, riserDiameter,
-                        slope, mainStartPoint, mainEndPoint
+                        slope, mainStartPoint, mainEndPoint, _addFittings
                     });
 
                     // Create and execute the handler directly

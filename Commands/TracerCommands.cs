@@ -52,6 +52,7 @@ namespace PluginsManager.Commands
         private static XYZ _riserConnectionPoint;
         private static double _pipeDiameter;
         private static double _mainLineSlope;
+        private static bool _addFittings;
 
         public string GetName()
         {
@@ -61,7 +62,7 @@ namespace PluginsManager.Commands
         public static void SetConnectionData(
             ElementId mainPipeId, ElementId riserId,
             XYZ connectionPoint, XYZ riserConnectionPoint, double pipeDiameter,
-            double mainLineSlope)
+            double mainLineSlope, bool addFittings = false)
         {
             _mainPipeElementId = mainPipeId;
             _riserElementId = riserId;
@@ -69,6 +70,7 @@ namespace PluginsManager.Commands
             _riserConnectionPoint = riserConnectionPoint;
             _pipeDiameter = pipeDiameter;
             _mainLineSlope = mainLineSlope;
+            _addFittings = addFittings;
         }
 
         public void Execute(UIApplication app)
@@ -226,6 +228,12 @@ namespace PluginsManager.Commands
                         // Подгоняем стояк (используем startPoint - точка у стояка выше)
                         AdjustRiser(doc, _riserElementId, startPoint);
 
+                        // Create fitting if checkbox is enabled
+                        if (_addFittings)
+                        {
+                            TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, connectionPipe, startPoint);
+                        }
+
                         tx.Commit();
                         DebugLogger.Log("[TRACER-COMMAND] Connection created successfully");
                     }
@@ -310,6 +318,7 @@ namespace PluginsManager.Commands
         private static double _mainLineSlope;
         private static XYZ _mainLineStartPoint;
         private static XYZ _mainLineEndPoint;
+        private static bool _addFittings;
 
         public string GetName()
         {
@@ -319,7 +328,7 @@ namespace PluginsManager.Commands
         public static void SetConnectionData(
             ElementId mainPipeId, ElementId riserId,
             XYZ connectionPoint, XYZ riserConnectionPoint, double pipeDiameter,
-            double mainLineSlope, XYZ mainLineStart, XYZ mainLineEnd)
+            double mainLineSlope, XYZ mainLineStart, XYZ mainLineEnd, bool addFittings = false)
         {
             _mainPipeElementId = mainPipeId;
             _riserElementId = riserId;
@@ -329,6 +338,7 @@ namespace PluginsManager.Commands
             _mainLineSlope = mainLineSlope;
             _mainLineStartPoint = mainLineStart;
             _mainLineEndPoint = mainLineEnd;
+            _addFittings = addFittings;
         }
 
         public void Execute(UIApplication app)
@@ -538,9 +548,21 @@ namespace PluginsManager.Commands
                         
                         DebugLogger.Log($"[TRACER-COMMAND] Segment B (90°) created: {segmentB.Id}");
                         
+                        // Create fitting between segments A and B if checkbox is enabled
+                        if (_addFittings)
+                        {
+                            TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentA, segmentB, point7);
+                        }
+                        
                         // Подгоняем стояк к точке 6 (сохраняем вертикальность)
                         AdjustRiserForLConnection(doc, _riserElementId, point6);
-
+                        
+                        // Create fitting if checkbox is enabled (between riser and segment B)
+                        if (_addFittings)
+                        {
+                            TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, segmentB, point6);
+                        }
+                        
                         tx.Commit();
                         DebugLogger.Log("[TRACER-COMMAND] L-shaped connection created successfully");
                     }
@@ -666,6 +688,7 @@ namespace PluginsManager.Commands
         private static double _mainLineSlope;
         private static XYZ _mainLineStartPoint;
         private static XYZ _mainLineEndPoint;
+        private static bool _addFittings;
 
         public string GetName()
         {
@@ -675,7 +698,7 @@ namespace PluginsManager.Commands
         public static void SetConnectionData(
             ElementId mainPipeId, ElementId riserId,
             XYZ connectionPoint, XYZ riserConnectionPoint, double pipeDiameter,
-            double mainLineSlope, XYZ mainLineStartPoint, XYZ mainLineEndPoint)
+            double mainLineSlope, XYZ mainLineStartPoint, XYZ mainLineEndPoint, bool addFittings = false)
         {
             _mainPipeElementId = mainPipeId;
             _riserElementId = riserId;
@@ -685,6 +708,7 @@ namespace PluginsManager.Commands
             _mainLineSlope = mainLineSlope;
             _mainLineStartPoint = mainLineStartPoint;
             _mainLineEndPoint = mainLineEndPoint;
+            _addFittings = addFittings;
         }
 
         public void Execute(UIApplication app)
@@ -870,8 +894,20 @@ namespace PluginsManager.Commands
                         
                         DebugLogger.Log($"[TRACER-COMMAND] Segment B created: {segmentB.Id}");
                         
+                        // Create fitting between segments A and B if checkbox is enabled
+                        if (_addFittings)
+                        {
+                            TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentA, segmentB, point5);
+                        }
+                        
                         // Подгоняем стояк к точке 6 (по Z, сохраняя X,Y оси стояка)
                         AdjustRiserForBottomConnection(doc, _riserElementId, point6);
+
+                        // Create fitting if checkbox is enabled (between riser and segment B)
+                        if (_addFittings)
+                        {
+                            TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, segmentB, point6);
+                        }
 
                         tx.Commit();
                         DebugLogger.Log("[TRACER-COMMAND] Bottom perpendicular connection created successfully");
@@ -986,6 +1022,152 @@ namespace PluginsManager.Commands
             riserLocation.Curve = newRiserLine;
 
             DebugLogger.Log($"[TRACER-COMMAND] Adjusted riser bottom to Z={newRiserBottom.Z:F3} (X,Y unchanged: {newRiserBottom.X:F3},{newRiserBottom.Y:F3})");
+        }
+
+    }
+
+    /// <summary>
+    /// Helper class for creating pipe fittings in Tracer module
+    /// </summary>
+    public static class TracerFittingHelper
+    {
+        /// <summary>
+        /// Creates an elbow fitting between two pipes using NewElbowFitting
+        /// </summary>
+        public static Element CreateFittingBetweenPipes(Document doc, Pipe pipe1, Pipe pipe2, XYZ connectionPoint)
+        {
+            try
+            {
+                DebugLogger.Log("[TRACER-FITTING] Creating fitting between two pipes...");
+
+                // Find the closest connector on pipe1 to the connection point
+                Connector pipe1Connector = GetClosestConnector(pipe1, connectionPoint);
+                if (pipe1Connector == null)
+                {
+                    DebugLogger.Log("[TRACER-FITTING] WARNING: Could not find pipe1 connector");
+                    return null;
+                }
+
+                // Find the closest connector on pipe2 to the connection point
+                Connector pipe2Connector = GetClosestConnector(pipe2, connectionPoint);
+                if (pipe2Connector == null)
+                {
+                    DebugLogger.Log("[TRACER-FITTING] WARNING: Could not find pipe2 connector");
+                    return null;
+                }
+
+                // Check if connectors are already connected
+                if (pipe1Connector.IsConnected || pipe2Connector.IsConnected)
+                {
+                    DebugLogger.Log("[TRACER-FITTING] WARNING: One of the connectors is already connected");
+                    return null;
+                }
+
+                // Create the elbow fitting
+                Element fitting = doc.Create.NewElbowFitting(pipe1Connector, pipe2Connector);
+                if (fitting != null)
+                {
+                    DebugLogger.Log($"[TRACER-FITTING] Successfully created fitting between pipes: {fitting.Id}");
+                }
+                else
+                {
+                    DebugLogger.Log("[TRACER-FITTING] WARNING: NewElbowFitting returned null");
+                }
+
+                return fitting;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[TRACER-FITTING] ERROR creating fitting between pipes: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Creates an elbow fitting between a riser and a pipe using NewElbowFitting
+        /// </summary>
+        public static Element CreateFittingBetweenRiserAndPipe(Document doc, ElementId riserId, Pipe pipe, XYZ connectionPoint)
+        {
+            try
+            {
+                DebugLogger.Log("[TRACER-FITTING] Creating fitting between riser and pipe...");
+
+                // Get the riser pipe
+                Pipe riserPipe = doc.GetElement(riserId) as Pipe;
+                if (riserPipe == null)
+                {
+                    DebugLogger.Log("[TRACER-FITTING] WARNING: Riser not found for fitting creation");
+                    return null;
+                }
+
+                // Find the closest connector on the riser to the connection point
+                Connector riserConnector = GetClosestConnector(riserPipe, connectionPoint);
+                if (riserConnector == null)
+                {
+                    DebugLogger.Log("[TRACER-FITTING] WARNING: Could not find riser connector");
+                    return null;
+                }
+
+                // Find the closest connector on the pipe to the connection point
+                Connector pipeConnector = GetClosestConnector(pipe, connectionPoint);
+                if (pipeConnector == null)
+                {
+                    DebugLogger.Log("[TRACER-FITTING] WARNING: Could not find pipe connector");
+                    return null;
+                }
+
+                // Check if connectors are already connected
+                if (riserConnector.IsConnected || pipeConnector.IsConnected)
+                {
+                    DebugLogger.Log("[TRACER-FITTING] WARNING: One of the connectors is already connected");
+                    return null;
+                }
+
+                // Create the elbow fitting
+                Element fitting = doc.Create.NewElbowFitting(riserConnector, pipeConnector);
+                if (fitting != null)
+                {
+                    DebugLogger.Log($"[TRACER-FITTING] Successfully created fitting: {fitting.Id}");
+                }
+                else
+                {
+                    DebugLogger.Log("[TRACER-FITTING] WARNING: NewElbowFitting returned null");
+                }
+
+                return fitting;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[TRACER-FITTING] ERROR creating fitting: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Gets the closest connector on a pipe to a given point
+        /// </summary>
+        private static Connector GetClosestConnector(Pipe pipe, XYZ point)
+        {
+            ConnectorManager connectorManager = pipe.ConnectorManager;
+            if (connectorManager == null) return null;
+
+            ConnectorSet connectors = connectorManager.Connectors;
+            if (connectors == null || connectors.Size == 0) return null;
+
+            Connector closestConnector = null;
+            double minDistance = double.MaxValue;
+
+            foreach (Connector connector in connectors)
+            {
+                double distance = connector.Origin.DistanceTo(point);
+                if (distance < minDistance)
+                {
+                    minDistance = distance;
+                    closestConnector = connector;
+                }
+            }
+
+            return closestConnector;
         }
     }
 }
