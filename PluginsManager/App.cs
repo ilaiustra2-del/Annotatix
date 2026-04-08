@@ -211,10 +211,24 @@ namespace PluginsManager
 
                     PushButton tracerBottomBtn = panelTracer.AddItem(tracerBottomBtnData) as PushButton;
 
+                    // Z-shaped connection button
+                    PushButtonData tracerZBtnData = new PushButtonData(
+                        "TracerZShapedRibbon",
+                        "Z-образное\nприсоединение",
+                        assemblyPath,
+                        "PluginsManager.Commands.TracerZShapedRibbonCommand"
+                    );
+                    tracerZBtnData.ToolTip =
+                        "Z-образное присоединение стояка к магистрали.\n" +
+                        "Выберите магистраль, затем стояки, затем настройте уклон.";
+
+                    PushButton tracerZBtn = panelTracer.AddItem(tracerZBtnData) as PushButton;
+
                     // Set icons for Tracer buttons
                     string tracerIcon45 = Path.Combine(assemblyDir, "Tracer_45.png");
                     string tracerIconL = Path.Combine(assemblyDir, "Tracer_L.png");
                     string tracerIconBottom = Path.Combine(assemblyDir, "Tracer_Bottom.png");
+                    string tracerIconZ = Path.Combine(assemblyDir, "Tracer_Z.png");
 
                     if (File.Exists(tracerIcon45))
                     {
@@ -227,6 +241,15 @@ namespace PluginsManager
                     if (File.Exists(tracerIconBottom))
                     {
                         try { tracerBottomBtn.LargeImage = new BitmapImage(new Uri(tracerIconBottom)); } catch { }
+                    }
+                    if (File.Exists(tracerIconZ))
+                    {
+                        try { tracerZBtn.LargeImage = new BitmapImage(new Uri(tracerIconZ)); Core.DebugLogger.Log($"[APP] Tracer Z icon loaded from: {tracerIconZ}"); }
+                        catch (Exception ex) { Core.DebugLogger.Log($"[APP] WARNING: Failed to load Tracer Z icon: {ex.Message}"); }
+                    }
+                    else
+                    {
+                        Core.DebugLogger.Log($"[APP] WARNING: Tracer Z icon not found at: {tracerIconZ}");
                     }
 
                     Core.DebugLogger.Log("[APP] Tracer ribbon panel created");

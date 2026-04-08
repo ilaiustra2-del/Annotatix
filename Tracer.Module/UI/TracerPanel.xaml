@@ -166,7 +166,7 @@
         </StackPanel>
         
         <!-- Connection Type Icons -->
-        <UniformGrid Grid.Row="4" Columns="3" Margin="0,0,0,12">
+        <UniformGrid Grid.Row="4" Columns="4" Margin="0,0,0,12">
             <Button x:Name="CreateConnectionButton"
                     Background="Transparent" BorderThickness="0" Padding="4"
                     Click="CreateConnectionButton_Click"
@@ -230,6 +230,28 @@
                         </Grid>
                     </Border>
                     <TextBlock Text="Снизу" FontSize="12" Foreground="#333333" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Button>
+            
+            <Button x:Name="CreateZConnectionButton"
+                    Background="Transparent" BorderThickness="0" Padding="4"
+                    Click="CreateZConnectionButton_Click"
+                    IsEnabled="False"
+                    Margin="4,0"
+                    ToolTip="Z-образное присоединение">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                    <Border x:Name="IconBorderZ" 
+                            BorderBrush="#ADADAD" 
+                            BorderThickness="1" 
+                            Width="100" 
+                            Height="100" 
+                            Background="White">
+                        <Grid>
+                            <Image Source="icons/Tracer_icons/Tracer_Z.png" Width="90" Height="90"/>
+                            <Border x:Name="OverlayZ" Background="#80000000" Opacity="0"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock Text="Z-образное" FontSize="12" Foreground="#333333" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                 </StackPanel>
             </Button>
         </UniformGrid>

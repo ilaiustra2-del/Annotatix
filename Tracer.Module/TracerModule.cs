@@ -40,13 +40,14 @@ namespace Tracer.Module
             ExternalEvent createConnectionEvent = parameters.Length > 3 ? parameters[3] as ExternalEvent : null;
             ExternalEvent createLConnectionEvent = parameters.Length > 4 ? parameters[4] as ExternalEvent : null;
             ExternalEvent createBottomConnectionEvent = parameters.Length > 5 ? parameters[5] as ExternalEvent : null;
+            ExternalEvent createZConnectionEvent = parameters.Length > 6 ? parameters[6] as ExternalEvent : null;
 
             try
             {
                 DebugLogger.Log("[TRACER-MODULE] Creating Tracer panel...");
-                DebugLogger.Log($"[TRACER-MODULE] ExternalEvents provided: selectMainPipe={selectMainPipeEvent != null}, selectRiser={selectRiserEvent != null}, createConnection={createConnectionEvent != null}, createLConnection={createLConnectionEvent != null}, createBottomConnection={createBottomConnectionEvent != null}");
+                DebugLogger.Log($"[TRACER-MODULE] ExternalEvents provided: selectMainPipe={selectMainPipeEvent != null}, selectRiser={selectRiserEvent != null}, createConnection={createConnectionEvent != null}, createLConnection={createLConnectionEvent != null}, createBottomConnection={createBottomConnectionEvent != null}, createZConnection={createZConnectionEvent != null}");
                 
-                var panel = new UI.TracerPanel(uiApp, selectMainPipeEvent, selectRiserEvent, createConnectionEvent, createLConnectionEvent, createBottomConnectionEvent);
+                var panel = new UI.TracerPanel(uiApp, selectMainPipeEvent, selectRiserEvent, createConnectionEvent, createLConnectionEvent, createBottomConnectionEvent, createZConnectionEvent);
                 
                 var window = new Window
                 {

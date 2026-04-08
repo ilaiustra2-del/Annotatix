@@ -1027,6 +1027,360 @@ namespace PluginsManager.Commands
     }
 
     /// <summary>
+    /// ExternalEvent handler for creating Z-shaped connection in Tracer module
+    /// Z-shaped connection has 3 segments: A (45° from main), B (diagonal), C (parallel to A, to riser)
+    /// </summary>
+    public class TracerCreateZConnectionHandler : IExternalEventHandler
+    {
+        private static ElementId _mainPipeElementId;
+        private static ElementId _riserElementId;
+        private static XYZ _connectionPoint;
+        private static XYZ _riserConnectionPoint;
+        private static double _pipeDiameter;
+        private static double _mainLineSlope;
+        private static XYZ _mainLineStartPoint;
+        private static XYZ _mainLineEndPoint;
+        private static bool _addFittings;
+
+        public string GetName()
+        {
+            return "Tracer Create Z-shaped Connection";
+        }
+
+        public static void SetConnectionData(
+            ElementId mainPipeId, ElementId riserId,
+            XYZ connectionPoint, XYZ riserConnectionPoint, double pipeDiameter,
+            double mainLineSlope, XYZ mainLineStart, XYZ mainLineEnd, bool addFittings = false)
+        {
+            _mainPipeElementId = mainPipeId;
+            _riserElementId = riserId;
+            _connectionPoint = connectionPoint;
+            _riserConnectionPoint = riserConnectionPoint;
+            _pipeDiameter = pipeDiameter;
+            _mainLineSlope = mainLineSlope;
+            _mainLineStartPoint = mainLineStart;
+            _mainLineEndPoint = mainLineEnd;
+            _addFittings = addFittings;
+        }
+
+        public void Execute(UIApplication app)
+        {
+            try
+            {
+                DebugLogger.Log("[TRACER-COMMAND] Create Z-shaped connection event executing...");
+
+                if (_mainPipeElementId == null || _riserElementId == null || _connectionPoint == null)
+                {
+                    DebugLogger.Log("[TRACER-COMMAND] ERROR: Missing connection data");
+                    MessageBox.Show("Ошибка: отсутствуют данные для создания подключения", "Ошибка",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                Document doc = app.ActiveUIDocument.Document;
+
+                Element mainPipeElement = doc.GetElement(_mainPipeElementId);
+                if (mainPipeElement == null)
+                {
+                    DebugLogger.Log("[TRACER-COMMAND] ERROR: Main pipe element not found");
+                    MessageBox.Show("Ошибка: магистральная труба не найдена", "Ошибка",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                Pipe mainPipe = mainPipeElement as Pipe;
+                if (mainPipe == null)
+                {
+                    DebugLogger.Log("[TRACER-COMMAND] ERROR: Main element is not a pipe");
+                    MessageBox.Show("Ошибка: выбранный элемент не является трубой", "Ошибка",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                ElementId pipeTypeId = mainPipe.GetTypeId();
+                ElementId systemTypeId = mainPipe.MEPSystem?.GetTypeId();
+                ElementId levelId = mainPipe.LevelId;
+                if (levelId == null || levelId == ElementId.InvalidElementId)
+                {
+                    Level level = GetLevelByElevation(doc, _connectionPoint.Z);
+                    levelId = level?.Id ?? ElementId.InvalidElementId;
+                }
+
+                using (Transaction tx = new Transaction(doc, "Создание Z-образного присоединения"))
+                {
+                    tx.Start();
+
+                    try
+                    {
+                        // Z-образное присоединение по алгоритму:
+                        // 1. (x8,y8,z8) - проекция оси стояка на магистраль
+                        // 2. (x4,y4,z4) - точка на магистрали, смещена на 2*sqrt(a/2) вниз по уклону от (x8,y8,z8)
+                        // 3. Сегмент A = 1м под 45° от магистрали от (x4,y4,z4) к (x5,y5,z5)
+                        // 4. Сегмент B перпендикулярен магистрали от (x5,y5,z5) к (x6,y6,z6)
+                        // 5. Сегмент C параллелен A от (x6,y6,z6) к (x7,y7,z7), где x7=x3, y7=y3
+                        
+                        double a = 1.0; // длина сегментов A и C = 1 метр
+                        double b = Math.Sqrt(a / 2.0); // = sqrt(0.5) = 0.707м - катет прямоугольного треугольника
+                        double slopeRatio = _mainLineSlope / 100.0;
+                        
+                        // === НАПРАВЛЕНИЯ ===
+                        XYZ mainStartXY = new XYZ(_mainLineStartPoint.X, _mainLineStartPoint.Y, 0);
+                        XYZ mainEndXY = new XYZ(_mainLineEndPoint.X, _mainLineEndPoint.Y, 0);
+                        XYZ mainDirXY = (mainEndXY - mainStartXY).Normalize();
+                        double mainLengthXY = (mainEndXY - mainStartXY).GetLength();
+                        
+                        // Направление уклона (потока)
+                        bool flowFromStartToEnd = _mainLineStartPoint.Z > _mainLineEndPoint.Z;
+                        XYZ downstreamDir = flowFromStartToEnd ? mainDirXY : -mainDirXY;
+                        XYZ upstreamDir = -downstreamDir;
+                        
+                        // Перпендикуляр к магистрали
+                        XYZ perpDirXY = new XYZ(-mainDirXY.Y, mainDirXY.X, 0);
+                        
+                        // Определяем знак направления к стояку
+                        XYZ toRiserDir = new XYZ(_riserConnectionPoint.X - _mainLineStartPoint.X, 
+                                                  _riserConnectionPoint.Y - _mainLineStartPoint.Y, 0);
+                        double sideDot = toRiserDir.DotProduct(perpDirXY);
+                        int directionSign = sideDot > 0 ? 1 : -1;
+                        perpDirXY = perpDirXY * directionSign;
+                        
+                        // === ТОЧКА 8 - проекция оси стояка на магистраль (в плане XY) ===
+                        XYZ riserAxisXY = new XYZ(_riserConnectionPoint.X, _riserConnectionPoint.Y, 0);
+                        XYZ toRiserXY = riserAxisXY - mainStartXY;
+                        double projLength = toRiserXY.DotProduct(mainDirXY);
+                        XYZ point8XY = mainStartXY + mainDirXY * projLength;
+                        
+                        double t8 = projLength / mainLengthXY;
+                        double z8 = _mainLineStartPoint.Z + t8 * (_mainLineEndPoint.Z - _mainLineStartPoint.Z);
+                        XYZ point8 = new XYZ(point8XY.X, point8XY.Y, z8);
+                        
+                        // Расстояние от оси стояка до магистрали (в плане XY)
+                        double d = Math.Sqrt(Math.Pow(_riserConnectionPoint.X - point8.X, 2) +
+                                             Math.Pow(_riserConnectionPoint.Y - point8.Y, 2));
+                        
+                        // Проверка: минимальное расстояние для Z-образного = 2b = 1.414м
+                        if (d < 2 * b)
+                        {
+                            DebugLogger.Log($"[TRACER-COMMAND] ERROR: Riser too close to main line (d={d:F3}m, min={2*b:F3}m)");
+                            MessageBox.Show($"Стояк слишком близко к магистрали. Минимальное расстояние: {2*b:F2}м", "Ошибка",
+                                MessageBoxButton.OK, MessageBoxImage.Warning);
+                            tx.RollBack();
+                            return;
+                        }
+                        
+                        // === ТОЧКА 4 - на магистрали, смещена на 2b вниз по уклону от точки 8 ===
+                        double offsetToPt4 = 2 * b;
+                        double t4 = t8 + (flowFromStartToEnd ? offsetToPt4 / mainLengthXY : -offsetToPt4 / mainLengthXY);
+                        t4 = Math.Max(0, Math.Min(1, t4));
+                        
+                        XYZ point4 = new XYZ(
+                            _mainLineStartPoint.X + t4 * (_mainLineEndPoint.X - _mainLineStartPoint.X),
+                            _mainLineStartPoint.Y + t4 * (_mainLineEndPoint.Y - _mainLineStartPoint.Y),
+                            _mainLineStartPoint.Z + t4 * (_mainLineEndPoint.Z - _mainLineStartPoint.Z));
+                        
+                        // === ТОЧКА 5 - конец сегмента A ===
+                        // Сегмент A идет под 45° вверх от магистрали: смещение = b*upstream + b*perpDir
+                        double zRiseA = a * slopeRatio;
+                        
+                        XYZ point5 = new XYZ(
+                            point4.X + upstreamDir.X * b + perpDirXY.X * b,
+                            point4.Y + upstreamDir.Y * b + perpDirXY.Y * b,
+                            point4.Z + zRiseA);
+                        
+                        // === ДЛИНА СЕГМЕНТА B ===
+                        // Сегмент B перпендикулярен магистрали (в плоскости XY), идёт от точки 5 к точке 6
+                        // Длина сегмента B вычисляется так, чтобы точка 6 была на нужном расстоянии для сегмента C
+                        // 
+                        // Точка 7 на оси стояка, сегмент C идёт от 6 к 7 параллельно A
+                        // Сегмент A: направление = upstream + perpDirXY (45° к магистрали)
+                        // Сегмент C: направление такое же, но идём К стояку
+                        // Т.е. от точки 6 к точке 7: направление = upstream + perpDirXY
+                        // point7 = point6 + b*upstream + b*perpDirXY
+                        // point7 на оси стояка: x7=x3, y7=y3
+                        // Значит point6 = (x3 - b*ux - b*px, y3 - b*uy - b*py)
+                        
+                        // Точка 6 = точка 7 - b*upstream - b*perpDirXY
+                        double zRiseB = d * slopeRatio; // уклон для сегмента B
+                        
+                        XYZ point6 = new XYZ(
+                            _riserConnectionPoint.X - upstreamDir.X * b - perpDirXY.X * b,
+                            _riserConnectionPoint.Y - upstreamDir.Y * b - perpDirXY.Y * b,
+                            point5.Z + zRiseB);
+                        
+                        // Длина сегмента B в плане XY
+                        double distB = Math.Sqrt(
+                            Math.Pow(point6.X - point5.X, 2) +
+                            Math.Pow(point6.Y - point5.Y, 2));
+                        DebugLogger.Log($"[TRACER-COMMAND] Segment B XY length: {distB:F3}m, d={d:F3}m");
+                        
+                        // === ТОЧКА 7 - конец сегмента C, на оси стояка ===
+                        // Сегмент C параллелен A: направление = upstream + perpDirXY
+                        // point7 = point6 + b*upstream + b*perpDirXY
+                        double zRiseC = a * slopeRatio;
+                        
+                        XYZ point7 = new XYZ(
+                            point6.X + upstreamDir.X * b + perpDirXY.X * b,
+                            point6.Y + upstreamDir.Y * b + perpDirXY.Y * b,
+                            point6.Z + zRiseC);
+                        
+                        // Проверка: точка 7 должна быть на оси стояка
+                        double dist7toRiser = Math.Sqrt(
+                            Math.Pow(point7.X - _riserConnectionPoint.X, 2) +
+                            Math.Pow(point7.Y - _riserConnectionPoint.Y, 2));
+                        DebugLogger.Log($"[TRACER-COMMAND] Point 7 distance to riser axis: {dist7toRiser:F3}m (should be 0)");
+                        
+                        // Проверка: точка 7 должна быть на оси стояка
+                        DebugLogger.Log($"[TRACER-COMMAND] Point 7 check: ({point7.X:F3},{point7.Y:F3}), riser axis: ({_riserConnectionPoint.X:F3},{_riserConnectionPoint.Y:F3})");
+                        
+                        DebugLogger.Log($"[TRACER-COMMAND] Z-connection Point 8 (projection): ({point8.X:F3},{point8.Y:F3},{point8.Z:F3})");
+                        DebugLogger.Log($"[TRACER-COMMAND] Z-connection Point 4 (start on main): ({point4.X:F3},{point4.Y:F3},{point4.Z:F3})");
+                        DebugLogger.Log($"[TRACER-COMMAND] Z-connection Point 5 (end of A): ({point5.X:F3},{point5.Y:F3},{point5.Z:F3})");
+                        DebugLogger.Log($"[TRACER-COMMAND] Z-connection Point 6 (end of B): ({point6.X:F3},{point6.Y:F3},{point6.Z:F3})");
+                        DebugLogger.Log($"[TRACER-COMMAND] Z-connection Point 7 (end of C): ({point7.X:F3},{point7.Y:F3},{point7.Z:F3})");
+                        DebugLogger.Log($"[TRACER-COMMAND] Distance d={d:F3}m, b={b:F3}m, distB={distB:F3}m");
+                        
+                        // === СЕГМЕНТ A (от точки 4 к точке 5) ===
+                        DebugLogger.Log("[TRACER-COMMAND] Creating segment A (45° up from main)...");
+                        Pipe segmentA = Pipe.Create(
+                            doc, systemTypeId, pipeTypeId, levelId, point4, point5);
+                        
+                        if (segmentA == null)
+                        {
+                            DebugLogger.Log("[TRACER-COMMAND] ERROR: Failed to create segment A");
+                            tx.RollBack();
+                            return;
+                        }
+                        
+                        Parameter diameterParamA = segmentA.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM);
+                        if (diameterParamA != null && !diameterParamA.IsReadOnly)
+                            diameterParamA.Set(_pipeDiameter);
+                        DebugLogger.Log($"[TRACER-COMMAND] Segment A created: {segmentA.Id}");
+                        
+                        // === СЕГМЕНТ B (от точки 5 к точке 6) - перпендикулярно магистрали ===
+                        DebugLogger.Log("[TRACER-COMMAND] Creating segment B (perpendicular to main)...");
+                        Pipe segmentB = Pipe.Create(
+                            doc, systemTypeId, pipeTypeId, levelId, point5, point6);
+                        
+                        if (segmentB == null)
+                        {
+                            DebugLogger.Log("[TRACER-COMMAND] ERROR: Failed to create segment B");
+                            tx.RollBack();
+                            return;
+                        }
+                        
+                        Parameter diameterParamB = segmentB.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM);
+                        if (diameterParamB != null && !diameterParamB.IsReadOnly)
+                            diameterParamB.Set(_pipeDiameter);
+                        DebugLogger.Log($"[TRACER-COMMAND] Segment B created: {segmentB.Id}");
+                        
+                        // === СЕГМЕНТ C (от точки 6 к точке 7) - параллельно A ===
+                        DebugLogger.Log("[TRACER-COMMAND] Creating segment C (parallel to A)...");
+                        Pipe segmentC = Pipe.Create(
+                            doc, systemTypeId, pipeTypeId, levelId, point6, point7);
+                        
+                        if (segmentC == null)
+                        {
+                            DebugLogger.Log("[TRACER-COMMAND] ERROR: Failed to create segment C");
+                            tx.RollBack();
+                            return;
+                        }
+                        
+                        Parameter diameterParamC = segmentC.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM);
+                        if (diameterParamC != null && !diameterParamC.IsReadOnly)
+                            diameterParamC.Set(_pipeDiameter);
+                        DebugLogger.Log($"[TRACER-COMMAND] Segment C created: {segmentC.Id}");
+                        
+                        // Подгоняем стояк к точке 7
+                        AdjustRiserForZConnection(doc, _riserElementId, point7);
+                        
+                        // Create fittings if checkbox is enabled
+                        if (_addFittings)
+                        {
+                            // Fitting between main and segment A
+                            TracerFittingHelper.CreateFittingBetweenMainAndPipe(doc, mainPipe, segmentA, point4);
+                            // Fitting between A and B
+                            TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentA, segmentB, point5);
+                            // Fitting between B and C
+                            TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentB, segmentC, point6);
+                            // Fitting between C and riser
+                            TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, segmentC, point7);
+                        }
+                        
+                        tx.Commit();
+                        DebugLogger.Log("[TRACER-COMMAND] Z-shaped connection created successfully");
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.Log($"[TRACER-COMMAND] ERROR during Z-connection creation: {ex.Message}\n{ex.StackTrace}");
+                        tx.RollBack();
+                        MessageBox.Show($"Ошибка при создании Z-образного подключения: {ex.Message}", "Ошибка",
+                            MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[TRACER-COMMAND] ERROR in Execute: {ex.Message}\n{ex.StackTrace}");
+                MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void AdjustRiserForZConnection(Document doc, ElementId riserId, XYZ connectionPoint)
+        {
+            Element riserElement = doc.GetElement(riserId);
+            if (riserElement == null || !(riserElement is Pipe riserPipe))
+            {
+                DebugLogger.Log("[TRACER-COMMAND] WARNING: Riser not found for adjustment");
+                return;
+            }
+
+            LocationCurve riserLocation = riserPipe.Location as LocationCurve;
+            if (riserLocation == null)
+            {
+                DebugLogger.Log("[TRACER-COMMAND] WARNING: Riser has no LocationCurve");
+                return;
+            }
+
+            Line riserLine = riserLocation.Curve as Line;
+            if (riserLine == null)
+            {
+                DebugLogger.Log("[TRACER-COMMAND] WARNING: Riser curve is not a Line");
+                return;
+            }
+
+            XYZ riserEnd0 = riserLine.GetEndPoint(0);
+            XYZ riserEnd1 = riserLine.GetEndPoint(1);
+
+            double dist0 = riserEnd0.DistanceTo(connectionPoint);
+            double dist1 = riserEnd1.DistanceTo(connectionPoint);
+
+            XYZ riserTop = (dist0 > dist1) ? riserEnd0 : riserEnd1;
+            XYZ riserBottom = (dist0 > dist1) ? riserEnd1 : riserEnd0;
+
+            // Стояк должен оставаться вертикальным - сохраняем X, Y оси стояка
+            // Меняем только Z координату нижней точки
+            XYZ newRiserBottom = new XYZ(riserBottom.X, riserBottom.Y, connectionPoint.Z);
+
+            Line newRiserLine = Line.CreateBound(newRiserBottom, riserTop);
+            riserLocation.Curve = newRiserLine;
+
+            DebugLogger.Log($"[TRACER-COMMAND] Adjusted riser bottom to Z={newRiserBottom.Z:F3} (X,Y unchanged: {newRiserBottom.X:F3},{newRiserBottom.Y:F3})");
+        }
+
+        private static Level GetLevelByElevation(Document doc, double elevation)
+        {
+            var levels = new FilteredElementCollector(doc)
+                .OfClass(typeof(Level))
+                .Cast<Level>()
+                .OrderBy(l => Math.Abs(l.Elevation - elevation))
+                .ToList();
+
+            return levels.FirstOrDefault();
+        }
+    }
+
+    /// <summary>
     /// Helper class for creating pipe fittings in Tracer module
     /// </summary>
     public static class TracerFittingHelper
@@ -1139,6 +1493,54 @@ namespace PluginsManager.Commands
             catch (Exception ex)
             {
                 DebugLogger.Log($"[TRACER-FITTING] ERROR creating fitting: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Creates a tee fitting between main pipe and a branch pipe
+        /// </summary>
+        public static Element CreateFittingBetweenMainAndPipe(Document doc, Pipe mainPipe, Pipe branchPipe, XYZ connectionPoint)
+        {
+            try
+            {
+                DebugLogger.Log("[TRACER-FITTING] Creating tee fitting between main and branch pipe...");
+
+                // Find the closest connector on branch pipe to the connection point
+                Connector branchConnector = GetClosestConnector(branchPipe, connectionPoint);
+                if (branchConnector == null)
+                {
+                    DebugLogger.Log("[TRACER-FITTING] WARNING: Could not find branch pipe connector");
+                    return null;
+                }
+
+                // Find connector on main pipe closest to connection point
+                Connector mainConnector = GetClosestConnector(mainPipe, connectionPoint);
+                if (mainConnector == null)
+                {
+                    DebugLogger.Log("[TRACER-FITTING] WARNING: Could not find main pipe connector");
+                    return null;
+                }
+
+                // Check if connectors are already connected
+                if (branchConnector.IsConnected)
+                {
+                    DebugLogger.Log("[TRACER-FITTING] Branch connector already connected");
+                    return null;
+                }
+
+                // Use NewElbowFitting for connection
+                Element fitting = doc.Create.NewElbowFitting(mainConnector, branchConnector);
+                if (fitting != null)
+                {
+                    DebugLogger.Log($"[TRACER-FITTING] Successfully created fitting: {fitting.Id}");
+                }
+
+                return fitting;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[TRACER-FITTING] ERROR creating tee fitting: {ex.Message}");
                 return null;
             }
         }

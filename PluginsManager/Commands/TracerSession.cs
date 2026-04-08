@@ -167,7 +167,8 @@ namespace PluginsManager.Commands
         {
             Angle45,
             LShaped,
-            Bottom
+            Bottom,
+            ZShaped
         }
 
         // ----------------------------------------------------------------
@@ -841,6 +842,9 @@ namespace PluginsManager.Commands
                         case TracerSession.TracerConnectionType.Bottom:
                             CreateBottomConnection(app, doc, _mainLineId, riserId);
                             break;
+                        case TracerSession.TracerConnectionType.ZShaped:
+                            CreateZShapedConnection(app, doc, _mainLineId, riserId);
+                            break;
                     }
                 }
 
@@ -1130,6 +1134,101 @@ namespace PluginsManager.Commands
             catch (Exception ex)
             {
                 DebugLogger.Log($"[TRACER-EXEC] ERROR in CreateBottomConnection: {ex.Message}");
+            }
+        }
+
+        private void CreateZShapedConnection(UIApplication app, Document doc, ElementId mainLineId, ElementId riserId)
+        {
+            try
+            {
+                // Get main line and riser data using Tracer.Module.Core utilities via reflection
+                var tracerAssembly = System.Reflection.Assembly.Load("Tracer.Module");
+                var utilsType = tracerAssembly?.GetType("Tracer.Module.Core.RevitPipeUtils");
+                var calcType = tracerAssembly?.GetType("Tracer.Module.Core.ConnectionCalculator");
+
+                if (utilsType == null || calcType == null)
+                {
+                    DebugLogger.Log("[TRACER-EXEC] ERROR: Could not load Tracer.Module types");
+                    return;
+                }
+
+                // Get MainLineData
+                var getMainLineMethod = utilsType.GetMethod("GetMainLineData",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                var mainLine = getMainLineMethod?.Invoke(null, new object[] { doc, mainLineId });
+
+                // Get RiserData
+                var getRiserMethod = utilsType.GetMethod("GetRiserData",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                var riser = getRiserMethod?.Invoke(null, new object[] { doc, riserId });
+
+                if (mainLine == null || riser == null)
+                {
+                    DebugLogger.Log("[TRACER-EXEC] ERROR: Could not get main line or riser data");
+                    return;
+                }
+
+                // Calculate connection points (same as L-shaped for the starting point)
+                var calcMethod = calcType.GetMethod("CalculateConnectionPoints",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                var result = calcMethod?.Invoke(null, new object[] { mainLine, riser });
+
+                if (result == null)
+                {
+                    DebugLogger.Log("[TRACER-EXEC] ERROR: Could not calculate connection points");
+                    return;
+                }
+
+                // Extract connectionPoint and endPoint from ValueTuple using reflection
+                var resultType = result.GetType();
+                var connectionPoint = resultType.GetField("Item1")?.GetValue(result) as XYZ;
+                var endPoint = resultType.GetField("Item2")?.GetValue(result) as XYZ;
+
+                if (connectionPoint == null || endPoint == null)
+                {
+                    DebugLogger.Log("[TRACER-EXEC] ERROR: Could not extract connection points");
+                    return;
+                }
+
+                // Get pipe diameter from riser
+                var riserDiameter = riser.GetType().GetProperty("Diameter")?.GetValue(riser) as double? ?? 0.1;
+
+                // Determine slope to use
+                double slope = _useMainLineSlope
+                    ? (mainLine.GetType().GetProperty("Slope")?.GetValue(mainLine) as double? ?? 2.0)
+                    : _slopeValue;
+
+                // Get main line start/end points for Z-connection
+                var mainStartPoint = mainLine.GetType().GetProperty("StartPoint")?.GetValue(mainLine) as XYZ;
+                var mainEndPoint = mainLine.GetType().GetProperty("EndPoint")?.GetValue(mainLine) as XYZ;
+
+                DebugLogger.Log($"[TRACER-EXEC] Creating Z-shaped connection: slope={slope:F2}%, dia={riserDiameter*304.8:F0}mm");
+
+                // Call existing TracerCreateZConnectionHandler via reflection
+                var assembly = System.Reflection.Assembly.Load("PluginsManager");
+                var handlerType = assembly?.GetType("PluginsManager.Commands.TracerCreateZConnectionHandler");
+                if (handlerType != null)
+                {
+                    var setDataMethod = handlerType.GetMethod("SetConnectionData",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    setDataMethod?.Invoke(null, new object[] {
+                        mainLineId, riserId,
+                        connectionPoint, endPoint, riserDiameter,
+                        slope, mainStartPoint, mainEndPoint, _addFittings
+                    });
+
+                    // Create and execute the handler directly
+                    var handler = System.Activator.CreateInstance(handlerType) as IExternalEventHandler;
+                    handler?.Execute(app);
+                }
+                else
+                {
+                    DebugLogger.Log("[TRACER-EXEC] ERROR: Could not find TracerCreateZConnectionHandler");
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[TRACER-EXEC] ERROR in CreateZShapedConnection: {ex.Message}");
             }
         }
 

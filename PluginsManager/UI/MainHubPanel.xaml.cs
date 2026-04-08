@@ -46,6 +46,8 @@ namespace PluginsManager.UI
         private Commands.TracerCreateLConnectionHandler _tracerCreateLConnectionHandler;
         private ExternalEvent _tracerCreateBottomConnectionEvent;
         private Commands.TracerCreateBottomConnectionHandler _tracerCreateBottomConnectionHandler;
+        private ExternalEvent _tracerCreateZConnectionEvent;
+        private Commands.TracerCreateZConnectionHandler _tracerCreateZConnectionHandler;
         
         // Cache for module panels to avoid recreating them
         private object _familySyncPanelContent;
@@ -99,6 +101,8 @@ namespace PluginsManager.UI
             _tracerCreateLConnectionEvent = ExternalEvent.Create(_tracerCreateLConnectionHandler);
             _tracerCreateBottomConnectionHandler = new Commands.TracerCreateBottomConnectionHandler();
             _tracerCreateBottomConnectionEvent = ExternalEvent.Create(_tracerCreateBottomConnectionHandler);
+            _tracerCreateZConnectionHandler = new Commands.TracerCreateZConnectionHandler();
+            _tracerCreateZConnectionEvent = ExternalEvent.Create(_tracerCreateZConnectionHandler);
             System.Diagnostics.Debug.WriteLine("[HUB] Tracer ExternalEvents created in constructor");
             
             // Register this panel with the commands so they can update UI
@@ -706,7 +710,8 @@ namespace PluginsManager.UI
                     _tracerSelectRiserEvent,
                     _tracerCreateConnectionEvent,
                     _tracerCreateLConnectionEvent,
-                    _tracerCreateBottomConnectionEvent
+                    _tracerCreateBottomConnectionEvent,
+                    _tracerCreateZConnectionEvent
                 });
                 if (panel == null)
                 {

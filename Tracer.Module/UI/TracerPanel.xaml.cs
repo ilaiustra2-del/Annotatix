@@ -20,6 +20,7 @@ namespace Tracer.Module.UI
         private readonly ExternalEvent _createConnectionEvent;
         private readonly ExternalEvent _createLConnectionEvent;
         private readonly ExternalEvent _createBottomConnectionEvent;
+        private readonly ExternalEvent _createZConnectionEvent;
         
         // Selected elements data
         private MainLineData _selectedMainLine;
@@ -37,7 +38,8 @@ namespace Tracer.Module.UI
             ExternalEvent selectRiserEvent,
             ExternalEvent createConnectionEvent,
             ExternalEvent createLConnectionEvent,
-            ExternalEvent createBottomConnectionEvent)
+            ExternalEvent createBottomConnectionEvent,
+            ExternalEvent createZConnectionEvent)
         {
             InitializeComponent();
             
@@ -47,6 +49,7 @@ namespace Tracer.Module.UI
             _createConnectionEvent = createConnectionEvent;
             _createLConnectionEvent = createLConnectionEvent;
             _createBottomConnectionEvent = createBottomConnectionEvent;
+            _createZConnectionEvent = createZConnectionEvent;
             
             DebugLogger.Log("[TRACER-PANEL] Panel initialized");
         }
@@ -57,6 +60,7 @@ namespace Tracer.Module.UI
             SetupIconButtonHover(CreateConnectionButton, Overlay45);
             SetupIconButtonHover(CreateLConnectionButton, OverlayL);
             SetupIconButtonHover(CreateBottomConnectionButton, OverlayBottom);
+            SetupIconButtonHover(CreateZConnectionButton, OverlayZ);
         }
 
         private void SetupIconButtonHover(Button button, Border overlay)
@@ -147,6 +151,7 @@ namespace Tracer.Module.UI
                             CreateConnectionButton.IsEnabled = _connectionPoint != null;
                             CreateLConnectionButton.IsEnabled = _connectionPoint != null;
                             CreateBottomConnectionButton.IsEnabled = _connectionPoint != null;
+                            CreateZConnectionButton.IsEnabled = _connectionPoint != null;
                             DebugLogger.Log($"[TRACER-PANEL] Riser selected: {_selectedRiser.Name}");
                         }
                     }
@@ -394,6 +399,68 @@ namespace Tracer.Module.UI
             {
                 DebugLogger.Log($"[TRACER-PANEL] ERROR creating bottom connection: {ex.Message}");
                 MessageBox.Show($"Ошибка создания нижнего подключения: {ex.Message}", "Ошибка", 
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void CreateZConnectionButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                DebugLogger.Log("[TRACER-PANEL] Create Z-shaped connection button clicked");
+                
+                if (_selectedMainLine == null || _selectedRiser == null)
+                {
+                    MessageBox.Show("Необходимо выбрать магистраль и стояк", "Ошибка", 
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                
+                if (_connectionPoint == null || _riserConnectionPoint == null)
+                {
+                    MessageBox.Show("Не удалось рассчитать точку подключения. Проверьте положение элементов.", "Ошибка", 
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                // Get slope value
+                double slope = GetSelectedSlope();
+                
+                // Get add fittings flag
+                bool addFittings = AddFittingsCheckBox.IsChecked == true;
+                DebugLogger.Log($"[TRACER-PANEL] Add fittings: {addFittings}");
+                
+                // Store data for ExternalEvent handler
+                var handlerType = System.Type.GetType("PluginsManager.Commands.TracerCreateZConnectionHandler, PluginsManager");
+                if (handlerType != null)
+                {
+                    var method = handlerType.GetMethod("SetConnectionData", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    if (method != null)
+                    {
+                        method.Invoke(null, new object[] { 
+                            _selectedMainLine.ElementId, _selectedRiser.ElementId,
+                            _connectionPoint, _riserConnectionPoint, _pipeDiameter,
+                            slope, _selectedMainLine.StartPoint, _selectedMainLine.EndPoint, addFittings
+                        });
+                    }
+                }
+                else
+                {
+                    DebugLogger.Log("[TRACER-PANEL] ERROR: Could not find TracerCreateZConnectionHandler");
+                    MessageBox.Show("Ошибка: не найден обработчик создания Z-образного соединения", "Ошибка",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                // Raise ExternalEvent to create Z-shaped connection in Revit API context
+                _createZConnectionEvent.Raise();
+                
+                DebugLogger.Log("[TRACER-PANEL] ExternalEvent raised for Z-shaped connection creation");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[TRACER-PANEL] ERROR creating Z-shaped connection: {ex.Message}");
+                MessageBox.Show($"Ошибка создания Z-образного подключения: {ex.Message}", "Ошибка", 
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }

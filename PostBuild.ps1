@@ -230,9 +230,20 @@ foreach ($RevitVer in $RevitVersions) {
         Copy-Item -Path "$SourceIcons\*" -Destination $DestIcons -Force
         Write-Host "  → $RevitVer/main/UI/icons/"
     }
+    
+    # Copy Tracer icons folder (for TracerPanel.xaml)
+    $TracerIconsSource = [System.IO.Path]::Combine($ProjectDir, "Tracer.Module", "UI", "icons", "Tracer_icons")
+    $TracerIconsDest   = [System.IO.Path]::Combine($DestIcons, "Tracer_icons")
+    if (Test-Path $TracerIconsSource) {
+        if (-not (Test-Path $TracerIconsDest)) {
+            New-Item -ItemType Directory -Path $TracerIconsDest -Force | Out-Null
+        }
+        Copy-Item -Path "$TracerIconsSource\*" -Destination $TracerIconsDest -Force
+        Write-Host "  → $RevitVer/main/UI/icons/Tracer_icons/"
+    }
 
     # Copy Tracer icons to main folder (for ribbon buttons)
-    $TracerIcons = @("Tracer_45.png", "Tracer_L.png", "Tracer_Bottom.png")
+    $TracerIcons = @("Tracer_45.png", "Tracer_L.png", "Tracer_Bottom.png", "Tracer_Z.png")
     foreach ($icon in $TracerIcons) {
         $iconSource = [System.IO.Path]::Combine($SourceIcons, $icon)
         if (Test-Path $iconSource) {

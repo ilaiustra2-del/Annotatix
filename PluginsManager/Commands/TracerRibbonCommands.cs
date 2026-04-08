@@ -114,4 +114,16 @@ namespace PluginsManager.Commands
             TracerSession.TracerConnectionType.Bottom;
         protected override string CommandName => "TracerBottom";
     }
+
+    /// <summary>
+    /// Z-shaped connection ribbon button
+    /// </summary>
+    [Transaction(TransactionMode.Manual)]
+    [Regeneration(RegenerationOption.Manual)]
+    public class TracerZShapedRibbonCommand : TracerRibbonCommandBase
+    {
+        protected override TracerSession.TracerConnectionType ConnectionType => 
+            TracerSession.TracerConnectionType.ZShaped;
+        protected override string CommandName => "TracerZShaped";
+    }
 }
