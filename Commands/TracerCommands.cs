@@ -1199,19 +1199,24 @@ namespace PluginsManager.Commands
                         // point7 на оси стояка: x7=x3, y7=y3
                         // Значит point6 = (x3 - b*ux - b*px, y3 - b*uy - b*py)
                         
-                        // Точка 6 = точка 7 - b*upstream - b*perpDirXY
-                        double zRiseB = d * slopeRatio; // уклон для сегмента B
-                        
-                        XYZ point6 = new XYZ(
-                            _riserConnectionPoint.X - upstreamDir.X * b - perpDirXY.X * b,
-                            _riserConnectionPoint.Y - upstreamDir.Y * b - perpDirXY.Y * b,
-                            point5.Z + zRiseB);
+                        // Точка 6 XY = точка 7 XY - b*upstream - b*perpDirXY
+                        // Сначала вычисляем XY координаты точки 6
+                        double point6_X = _riserConnectionPoint.X - upstreamDir.X * b - perpDirXY.X * b;
+                        double point6_Y = _riserConnectionPoint.Y - upstreamDir.Y * b - perpDirXY.Y * b;
                         
                         // Длина сегмента B в плане XY
                         double distB = Math.Sqrt(
-                            Math.Pow(point6.X - point5.X, 2) +
-                            Math.Pow(point6.Y - point5.Y, 2));
+                            Math.Pow(point6_X - point5.X, 2) +
+                            Math.Pow(point6_Y - point5.Y, 2));
                         DebugLogger.Log($"[TRACER-COMMAND] Segment B XY length: {distB:F3}m, d={d:F3}m");
+                        
+                        // Уклон для сегмента B = длина * slopeRatio
+                        double zRiseB = distB * slopeRatio;
+                        
+                        XYZ point6 = new XYZ(
+                            point6_X,
+                            point6_Y,
+                            point5.Z + zRiseB);
                         
                         // === ТОЧКА 7 - конец сегмента C, на оси стояка ===
                         // Сегмент C параллелен A: направление = upstream + perpDirXY
