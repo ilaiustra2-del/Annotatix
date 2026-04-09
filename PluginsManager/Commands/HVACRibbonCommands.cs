@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Reflection;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
@@ -32,6 +33,36 @@ namespace PluginsManager.Commands
 
                 // Получаем модуль HVAC
                 var module = Core.DynamicModuleLoader.GetModuleInstance("hvac");
+                
+                // Если модуль не загружен - пытаемся загрузить автоматически
+                if (module == null)
+                {
+                    Core.DebugLogger.Log("[HVAC-RIBBON] Module not loaded, attempting auto-load...");
+                    
+                    // Путь к модулю HVAC
+                    string assemblyPath = typeof(HvacRibbonCommandBase).Assembly.Location;
+                    string assemblyDir = Path.GetDirectoryName(assemblyPath);
+                    string hvacModulePath = Path.Combine(assemblyDir, "hvac", "HVAC.Module.dll");
+                    
+                    if (!File.Exists(hvacModulePath))
+                    {
+                        Core.DebugLogger.Log($"[HVAC-RIBBON] Module not found at: {hvacModulePath}");
+                        TaskDialog.Show("HVAC", "Модуль HVAC не найден. Переустановите плагин.");
+                        return Result.Failed;
+                    }
+                    
+                    Core.DebugLogger.Log($"[HVAC-RIBBON] Loading module from: {hvacModulePath}");
+                    if (!Core.DynamicModuleLoader.LoadModule("hvac", hvacModulePath))
+                    {
+                        Core.DebugLogger.Log("[HVAC-RIBBON] Failed to load module");
+                        TaskDialog.Show("HVAC", "Не удалось загрузить модуль HVAC. Откройте Plugins Hub.");
+                        return Result.Failed;
+                    }
+                    
+                    module = Core.DynamicModuleLoader.GetModuleInstance("hvac");
+                    Core.DebugLogger.Log("[HVAC-RIBBON] Module auto-loaded successfully");
+                }
+
                 if (module == null)
                 {
                     TaskDialog.Show("HVAC", "Модуль HVAC не загружен. Откройте Plugins Hub для авторизации.");
@@ -55,7 +86,7 @@ namespace PluginsManager.Commands
                 var handler = Activator.CreateInstance(handlerType) as IExternalEventHandler;
                 if (handler == null)
                 {
-                    Core.DebugLogger.Log($"[HVAC-RIBBON] ERROR: Could not create handler instance");
+                    Core.DebugLogger.Log("[HVAC-RIBBON] ERROR: Could not create handler instance");
                     TaskDialog.Show("HVAC", "Не удалось создать обработчик");
                     return Result.Failed;
                 }
