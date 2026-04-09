@@ -20,6 +20,9 @@ namespace HVAC.Module.Commands
         {
             try
             {
+                // Устанавливаем UIApplication для IdlingHandler (критично для работы!)
+                HVACSuperScheme.App._uiApplication = app;
+                
                 if (_shouldStart)
                 {
                     DebugLogger.Log("[HVAC-TOGGLE] Starting IdlingHandler via ExternalEvent...");
