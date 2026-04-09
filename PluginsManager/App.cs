@@ -312,17 +312,24 @@ namespace PluginsManager
                         string settingsPath = System.IO.Path.Combine(
                             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                             "Autodesk", "Revit", "Addins", "HVACSuperSchemeSettings.cfg");
+                        bool isSyncEnabled = true; // По умолчанию включена
+                        
                         if (System.IO.File.Exists(settingsPath))
                         {
                             string json = System.IO.File.ReadAllText(settingsPath);
                             dynamic settings = Newtonsoft.Json.JsonConvert.DeserializeObject(json);
-                            bool isSyncEnabled = settings?.IsUpdaterSync ?? true;
-                            hvacSyncBtn.ItemText = isSyncEnabled 
-                                ? "Синхронизация\nвключена" 
-                                : "Синхронизация\nвыключена";
+                            isSyncEnabled = settings?.IsUpdaterSync ?? true;
                         }
+                        
+                        hvacSyncBtn.ItemText = isSyncEnabled 
+                            ? "Синхронизация\nвключена" 
+                            : "Синхронизация\nвыключена";
+                        Core.DebugLogger.Log($"[APP-HVAC] Sync button text initialized: {isSyncEnabled}");
                     }
-                    catch { /* Игнорируем ошибки при загрузке настроек */ }
+                    catch (Exception ex) 
+                    { 
+                        Core.DebugLogger.Log($"[APP-HVAC] Error loading settings: {ex.Message}");
+                    }
 
                     // Try to set icons for HVAC buttons
                     string hvacIcon = Path.Combine(assemblyDir, "HVAC.png");

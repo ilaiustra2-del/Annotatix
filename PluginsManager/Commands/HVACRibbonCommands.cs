@@ -222,6 +222,15 @@ namespace PluginsManager.Commands
                 saveSettingsMethod?.Invoke(null, null);
                 Core.DebugLogger.Log("[HVAC-RIBBON-SYNC] Settings saved");
 
+                // Обновляем HVACSyncState.IsSyncEnabled (используется в handlers)
+                var hvacSyncStateType = moduleAssembly.GetType("HVAC.Module.UI.HVACSyncState");
+                if (hvacSyncStateType != null)
+                {
+                    var isSyncEnabledProperty = hvacSyncStateType.GetProperty("IsSyncEnabled");
+                    isSyncEnabledProperty?.SetValue(null, newState);
+                    Core.DebugLogger.Log($"[HVAC-RIBBON-SYNC] HVACSyncState.IsSyncEnabled set to: {newState}");
+                }
+
                 // Обновляем текст кнопки
                 if (SyncButton != null)
                 {
