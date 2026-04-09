@@ -259,6 +259,71 @@ namespace PluginsManager
                     Core.DebugLogger.Log($"[APP] WARNING: Could not create Tracer panel: {ex.Message}");
                 }
 
+                // ── HVAC ribbon panel ──────────────────────────────
+                try
+                {
+                    RibbonPanel panelHVAC = application.CreateRibbonPanel(tabName, "HVAC");
+
+                    // Построить схему button
+                    PushButtonData hvacCreateBtnData = new PushButtonData(
+                        "HvacCreateSchemaRibbon",
+                        "Построить\nсхему",
+                        assemblyPath,
+                        "PluginsManager.Commands.HvacCreateSchemaRibbonCommand"
+                    );
+                    hvacCreateBtnData.ToolTip =
+                        "Построение схемы систем HVAC.\n" +
+                        "Создаёт чертёж схемы на основе модели.";
+
+                    PushButton hvacCreateBtn = panelHVAC.AddItem(hvacCreateBtnData) as PushButton;
+
+                    // Достроить схему button
+                    PushButtonData hvacCompleteBtnData = new PushButtonData(
+                        "HvacCompleteSchemaRibbon",
+                        "Достроить\nсхему",
+                        assemblyPath,
+                        "PluginsManager.Commands.HvacCompleteSchemaRibbonCommand"
+                    );
+                    hvacCompleteBtnData.ToolTip =
+                        "Достраивание схемы систем HVAC.\n" +
+                        "Обновляет существующий чертёж схемы.";
+
+                    PushButton hvacCompleteBtn = panelHVAC.AddItem(hvacCompleteBtnData) as PushButton;
+
+                    // Sync toggle button
+                    PushButtonData hvacSyncBtnData = new PushButtonData(
+                        "HvacSyncToggleRibbon",
+                        "Синхронизация\nчертеж-модель",
+                        assemblyPath,
+                        "PluginsManager.Commands.HvacSyncToggleRibbonCommand"
+                    );
+                    hvacSyncBtnData.ToolTip =
+                        "Включить/выключить синхронизацию чертежа с моделью.\n" +
+                        "При включении изменения в модели автоматически отражаются на схеме.";
+
+                    PushButton hvacSyncBtn = panelHVAC.AddItem(hvacSyncBtnData) as PushButton;
+
+                    // Try to set icons for HVAC buttons
+                    string hvacIcon = Path.Combine(assemblyDir, "HVAC.png");
+                    if (File.Exists(hvacIcon))
+                    {
+                        try
+                        {
+                            var hvacBitmap = new BitmapImage(new Uri(hvacIcon));
+                            hvacCreateBtn.LargeImage = hvacBitmap;
+                            hvacCompleteBtn.LargeImage = hvacBitmap;
+                            hvacSyncBtn.LargeImage = hvacBitmap;
+                        }
+                        catch { }
+                    }
+
+                    Core.DebugLogger.Log("[APP] HVAC ribbon panel created");
+                }
+                catch (Exception ex)
+                {
+                    Core.DebugLogger.Log($"[APP] WARNING: Could not create HVAC panel: {ex.Message}");
+                }
+
                 // ── Inject keyboard shortcuts (CR / СК) if absent ──────────
                 try
                 {
