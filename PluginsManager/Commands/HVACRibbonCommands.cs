@@ -188,25 +188,39 @@ namespace PluginsManager.Commands
                     return Result.Failed;
                 }
 
-                // Вызываем ReadSettings
-                var readSettingsMethod = settingStorageType.GetMethod("ReadSettings");
-                readSettingsMethod?.Invoke(null, null);
-
-                // Получаем Instance и IsUpdaterSync
+                // Получаем Instance - если null, инициализируем через ReadSettings
                 var instanceProperty = settingStorageType.GetProperty("Instance");
                 var instance = instanceProperty?.GetValue(null);
-                var isUpdaterSyncProperty = instance?.GetType().GetProperty("IsUpdaterSync");
+                
+                if (instance == null)
+                {
+                    Core.DebugLogger.Log("[HVAC-RIBBON-SYNC] Instance is null, calling ReadSettings...");
+                    var readSettingsMethod = settingStorageType.GetMethod("ReadSettings");
+                    readSettingsMethod?.Invoke(null, null);
+                    instance = instanceProperty?.GetValue(null);
+                }
+                
+                if (instance == null)
+                {
+                    Core.DebugLogger.Log("[HVAC-RIBBON-SYNC] Failed to initialize Instance");
+                    TaskDialog.Show("HVAC", "Не удалось инициализировать настройки");
+                    return Result.Failed;
+                }
+
+                // Получаем текущее состояние IsUpdaterSync
+                var isUpdaterSyncProperty = instance.GetType().GetProperty("IsUpdaterSync");
                 bool currentValue = (bool)(isUpdaterSyncProperty?.GetValue(instance) ?? false);
+                Core.DebugLogger.Log($"[HVAC-RIBBON-SYNC] Current IsUpdaterSync: {currentValue}");
                 
                 // Переключаем состояние
                 bool newState = !currentValue;
                 isUpdaterSyncProperty?.SetValue(instance, newState);
+                Core.DebugLogger.Log($"[HVAC-RIBBON-SYNC] Set IsUpdaterSync to: {newState}");
 
                 // Сохраняем настройки
                 var saveSettingsMethod = settingStorageType.GetMethod("SaveSettings");
                 saveSettingsMethod?.Invoke(null, null);
-
-                Core.DebugLogger.Log($"[HVAC-RIBBON-SYNC] Sync toggled to: {newState}");
+                Core.DebugLogger.Log("[HVAC-RIBBON-SYNC] Settings saved");
 
                 // Обновляем текст кнопки
                 if (SyncButton != null)

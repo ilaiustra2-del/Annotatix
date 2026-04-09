@@ -293,7 +293,7 @@ namespace PluginsManager
                     // Sync toggle button - сохраняем ссылку для динамического изменения текста
                     PushButtonData hvacSyncBtnData = new PushButtonData(
                         "HvacSyncToggleRibbon",
-                        "Синхронизация\nвыключена",
+                        "Синхронизация\nвключена",
                         assemblyPath,
                         "PluginsManager.Commands.HvacSyncToggleRibbonCommand"
                     );
@@ -305,6 +305,24 @@ namespace PluginsManager
                     
                     // Сохраняем ссылку на кнопку синхронизации
                     Commands.HvacSyncToggleRibbonCommand.SyncButton = hvacSyncBtn;
+                    
+                    // Загружаем настройки и обновляем текст кнопки
+                    try
+                    {
+                        string settingsPath = System.IO.Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                            "Autodesk", "Revit", "Addins", "HVACSuperSchemeSettings.cfg");
+                        if (System.IO.File.Exists(settingsPath))
+                        {
+                            string json = System.IO.File.ReadAllText(settingsPath);
+                            dynamic settings = Newtonsoft.Json.JsonConvert.DeserializeObject(json);
+                            bool isSyncEnabled = settings?.IsUpdaterSync ?? true;
+                            hvacSyncBtn.ItemText = isSyncEnabled 
+                                ? "Синхронизация\nвключена" 
+                                : "Синхронизация\nвыключена";
+                        }
+                    }
+                    catch { /* Игнорируем ошибки при загрузке настроек */ }
 
                     // Try to set icons for HVAC buttons
                     string hvacIcon = Path.Combine(assemblyDir, "HVAC.png");
