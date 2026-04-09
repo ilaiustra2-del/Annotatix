@@ -225,21 +225,21 @@ namespace PluginsManager.Commands
                             diameterParam.Set(_pipeDiameter);
                         }
 
-                        // Копируем параметр ИмяСистемы от магистрали
-                        TracerFittingHelper.CopySystemNameParameter(mainPipe, connectionPipe);
+                        // Получаем ИмяСистемы от магистрали (или стояка, если у магистрали пусто)
+                        string systemName = TracerFittingHelper.GetSystemName(doc, mainPipe, _riserElementId);
 
                         // Подгоняем стояк (используем startPoint - точка у стояка выше)
                         AdjustRiser(doc, _riserElementId, startPoint);
 
                         // Create fitting if checkbox is enabled
+                        Element fitting = null;
                         if (_addFittings)
                         {
-                            Element fitting = TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, connectionPipe, startPoint);
-                            if (fitting != null)
-                            {
-                                TracerFittingHelper.CopySystemNameFromRiser(doc, _riserElementId, fitting);
-                            }
+                            fitting = TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, connectionPipe, startPoint);
                         }
+                        
+                        // Применяем ИмяСистемы ко всем созданным элементам
+                        TracerFittingHelper.ApplySystemNameToElements(systemName, connectionPipe, fitting);
 
                         tx.Commit();
                         DebugLogger.Log("[TRACER-COMMAND] Connection created successfully");
@@ -523,9 +523,6 @@ namespace PluginsManager.Commands
                         if (diameterParamA != null && !diameterParamA.IsReadOnly)
                             diameterParamA.Set(_pipeDiameter);
                         
-                        // Копируем параметр ИмяСистемы от магистрали
-                        TracerFittingHelper.CopySystemNameParameter(mainPipe, segmentA);
-                        
                         DebugLogger.Log($"[TRACER-COMMAND] Segment A (45°) created: {segmentA.Id}");
                         
                         // === СЕГМЕНТ "б" (от точки 7 к точке 6) - под 90° к магистрали ===
@@ -549,9 +546,6 @@ namespace PluginsManager.Commands
                         if (diameterParamB != null && !diameterParamB.IsReadOnly)
                             diameterParamB.Set(_pipeDiameter);
                         
-                        // Копируем параметр ИмяСистемы от магистрали
-                        TracerFittingHelper.CopySystemNameParameter(mainPipe, segmentB);
-                        
                         // Устанавливаем уклон для сегмента Б (горизонтальный, уклон = 0)
                         Parameter slopeParamB = segmentB.get_Parameter(BuiltInParameter.RBS_PIPE_SLOPE);
                         if (slopeParamB != null && !slopeParamB.IsReadOnly)
@@ -561,28 +555,28 @@ namespace PluginsManager.Commands
                         
                         DebugLogger.Log($"[TRACER-COMMAND] Segment B (90°) created: {segmentB.Id}");
                         
+                        // Получаем ИмяСистемы от магистрали (или стояка, если у магистрали пусто)
+                        string systemName = TracerFittingHelper.GetSystemName(doc, mainPipe, _riserElementId);
+                        
                         // Create fitting between segments A and B if checkbox is enabled
+                        Element fittingAB = null;
                         if (_addFittings)
                         {
-                            Element fittingAB = TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentA, segmentB, point7);
-                            if (fittingAB != null)
-                            {
-                                TracerFittingHelper.CopySystemNameParameter(mainPipe, fittingAB);
-                            }
+                            fittingAB = TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentA, segmentB, point7);
                         }
                         
                         // Подгоняем стояк к точке 6 (сохраняем вертикальность)
                         AdjustRiserForLConnection(doc, _riserElementId, point6);
                         
                         // Create fitting if checkbox is enabled (between riser and segment B)
+                        Element fittingRiser = null;
                         if (_addFittings)
                         {
-                            Element fittingRiser = TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, segmentB, point6);
-                            if (fittingRiser != null)
-                            {
-                                TracerFittingHelper.CopySystemNameFromRiser(doc, _riserElementId, fittingRiser);
-                            }
+                            fittingRiser = TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, segmentB, point6);
                         }
+                        
+                        // Применяем ИмяСистемы ко всем созданным элементам
+                        TracerFittingHelper.ApplySystemNameToElements(systemName, segmentA, segmentB, fittingAB, fittingRiser);
                         
                         tx.Commit();
                         DebugLogger.Log("[TRACER-COMMAND] L-shaped connection created successfully");
@@ -883,9 +877,6 @@ namespace PluginsManager.Commands
                         if (diameterParamA != null && !diameterParamA.IsReadOnly)
                             diameterParamA.Set(_pipeDiameter);
                         
-                        // Копируем параметр ИмяСистемы от магистрали
-                        TracerFittingHelper.CopySystemNameParameter(mainPipe, segmentA);
-                        
                         DebugLogger.Log($"[TRACER-COMMAND] Segment A created: {segmentA.Id}");
                         
                         // === СЕГМЕНТ "Б" (от точки 5 к точке 6) - к стояку ===
@@ -909,9 +900,6 @@ namespace PluginsManager.Commands
                         if (diameterParamB != null && !diameterParamB.IsReadOnly)
                             diameterParamB.Set(_pipeDiameter);
                         
-                        // Копируем параметр ИмяСистемы от магистрали
-                        TracerFittingHelper.CopySystemNameParameter(mainPipe, segmentB);
-                        
                         // Устанавливаем уклон для сегмента Б (горизонтальный, уклон = 0)
                         Parameter slopeParamB = segmentB.get_Parameter(BuiltInParameter.RBS_PIPE_SLOPE);
                         if (slopeParamB != null && !slopeParamB.IsReadOnly)
@@ -921,28 +909,28 @@ namespace PluginsManager.Commands
                         
                         DebugLogger.Log($"[TRACER-COMMAND] Segment B created: {segmentB.Id}");
                         
+                        // Получаем ИмяСистемы от магистрали (или стояка, если у магистрали пусто)
+                        string systemName = TracerFittingHelper.GetSystemName(doc, mainPipe, _riserElementId);
+                        
                         // Create fitting between segments A and B if checkbox is enabled
+                        Element fittingAB = null;
                         if (_addFittings)
                         {
-                            Element fittingAB = TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentA, segmentB, point5);
-                            if (fittingAB != null)
-                            {
-                                TracerFittingHelper.CopySystemNameParameter(mainPipe, fittingAB);
-                            }
+                            fittingAB = TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentA, segmentB, point5);
                         }
                         
                         // Подгоняем стояк к точке 6 (по Z, сохраняя X,Y оси стояка)
                         AdjustRiserForBottomConnection(doc, _riserElementId, point6);
 
                         // Create fitting if checkbox is enabled (between riser and segment B)
+                        Element fittingRiser = null;
                         if (_addFittings)
                         {
-                            Element fittingRiser = TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, segmentB, point6);
-                            if (fittingRiser != null)
-                            {
-                                TracerFittingHelper.CopySystemNameFromRiser(doc, _riserElementId, fittingRiser);
-                            }
+                            fittingRiser = TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, segmentB, point6);
                         }
+
+                        // Применяем ИмяСистемы ко всем созданным элементам
+                        TracerFittingHelper.ApplySystemNameToElements(systemName, segmentA, segmentB, fittingAB, fittingRiser);
 
                         tx.Commit();
                         DebugLogger.Log("[TRACER-COMMAND] Bottom perpendicular connection created successfully");
@@ -1294,8 +1282,6 @@ namespace PluginsManager.Commands
                         Parameter diameterParamA = segmentA.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM);
                         if (diameterParamA != null && !diameterParamA.IsReadOnly)
                             diameterParamA.Set(_pipeDiameter);
-                        // Копируем параметр ИмяСистемы от магистрали
-                        TracerFittingHelper.CopySystemNameParameter(mainPipe, segmentA);
                         DebugLogger.Log($"[TRACER-COMMAND] Segment A created: {segmentA.Id}");
                         
                         // === СЕГМЕНТ B (от точки 5 к точке 6) - перпендикулярно магистрали ===
@@ -1313,8 +1299,6 @@ namespace PluginsManager.Commands
                         Parameter diameterParamB = segmentB.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM);
                         if (diameterParamB != null && !diameterParamB.IsReadOnly)
                             diameterParamB.Set(_pipeDiameter);
-                        // Копируем параметр ИмяСистемы от магистрали
-                        TracerFittingHelper.CopySystemNameParameter(mainPipe, segmentB);
                         DebugLogger.Log($"[TRACER-COMMAND] Segment B created: {segmentB.Id}");
                         
                         // === СЕГМЕНТ C (от точки 6 к точке 7) - параллельно A ===
@@ -1332,29 +1316,34 @@ namespace PluginsManager.Commands
                         Parameter diameterParamC = segmentC.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM);
                         if (diameterParamC != null && !diameterParamC.IsReadOnly)
                             diameterParamC.Set(_pipeDiameter);
-                        // Копируем параметр ИмяСистемы от магистрали
-                        TracerFittingHelper.CopySystemNameParameter(mainPipe, segmentC);
                         DebugLogger.Log($"[TRACER-COMMAND] Segment C created: {segmentC.Id}");
                         
                         // Подгоняем стояк к точке 7
                         AdjustRiserForZConnection(doc, _riserElementId, point7);
                         
+                        // Получаем ИмяСистемы от магистрали (или стояка, если у магистрали пусто)
+                        string systemName = TracerFittingHelper.GetSystemName(doc, mainPipe, _riserElementId);
+                        
                         // Create fittings if checkbox is enabled
+                        Element fittingMain = null;
+                        Element fittingAB = null;
+                        Element fittingBC = null;
+                        Element fittingRiser = null;
+                        
                         if (_addFittings)
                         {
                             // Fitting between main and segment A
-                            Element fittingMain = TracerFittingHelper.CreateFittingBetweenMainAndPipe(doc, mainPipe, segmentA, point4);
-                            if (fittingMain != null) TracerFittingHelper.CopySystemNameParameter(mainPipe, fittingMain);
+                            fittingMain = TracerFittingHelper.CreateFittingBetweenMainAndPipe(doc, mainPipe, segmentA, point4);
                             // Fitting between A and B
-                            Element fittingAB = TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentA, segmentB, point5);
-                            if (fittingAB != null) TracerFittingHelper.CopySystemNameParameter(mainPipe, fittingAB);
+                            fittingAB = TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentA, segmentB, point5);
                             // Fitting between B and C
-                            Element fittingBC = TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentB, segmentC, point6);
-                            if (fittingBC != null) TracerFittingHelper.CopySystemNameParameter(mainPipe, fittingBC);
+                            fittingBC = TracerFittingHelper.CreateFittingBetweenPipes(doc, segmentB, segmentC, point6);
                             // Fitting between C and riser
-                            Element fittingRiser = TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, segmentC, point7);
-                            if (fittingRiser != null) TracerFittingHelper.CopySystemNameFromRiser(doc, _riserElementId, fittingRiser);
+                            fittingRiser = TracerFittingHelper.CreateFittingBetweenRiserAndPipe(doc, _riserElementId, segmentC, point7);
                         }
+                        
+                        // Применяем ИмяСистемы ко всем созданным элементам
+                        TracerFittingHelper.ApplySystemNameToElements(systemName, segmentA, segmentB, segmentC, fittingMain, fittingAB, fittingBC, fittingRiser);
                         
                         tx.Commit();
                         DebugLogger.Log("[TRACER-COMMAND] Z-shaped connection created successfully");
@@ -1623,39 +1612,114 @@ namespace PluginsManager.Commands
         }
 
         /// <summary>
+        /// Получает значение параметра "ИмяСистемы" от элемента
+        /// </summary>
+        private static string GetElementSystemName(Element element)
+        {
+            if (element == null) return null;
+            
+            Parameter param = element.LookupParameter("ИмяСистемы");
+            if (param != null && param.StorageType == StorageType.String)
+            {
+                return param.AsString();
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Устанавливает значение параметра "ИмяСистемы" на элементе
+        /// </summary>
+        private static void SetElementSystemName(Element element, string systemName)
+        {
+            if (element == null || string.IsNullOrEmpty(systemName)) return;
+            
+            Parameter param = element.LookupParameter("ИмяСистемы");
+            if (param != null && !param.IsReadOnly)
+            {
+                param.Set(systemName);
+                DebugLogger.Log($"[TRACER-FITTING] Set ИмяСистемы='{systemName}' on element {element.Id}");
+            }
+            else if (param == null)
+            {
+                DebugLogger.Log($"[TRACER-FITTING] Element {element.Id} has no 'ИмяСистемы' parameter");
+            }
+            else
+            {
+                DebugLogger.Log($"[TRACER-FITTING] 'ИмяСистемы' is read-only on element {element.Id}");
+            }
+        }
+
+        /// <summary>
+        /// Получает имя системы от магистрали или стояка (приоритет: магистраль, затем стояк)
+        /// </summary>
+        public static string GetSystemName(Document doc, Pipe mainPipe, ElementId riserId)
+        {
+            try
+            {
+                // Сначала пробуем получить от магистрали
+                if (mainPipe != null)
+                {
+                    string mainSystemName = GetElementSystemName(mainPipe);
+                    if (!string.IsNullOrEmpty(mainSystemName))
+                    {
+                        DebugLogger.Log($"[TRACER-FITTING] Got ИмяСистемы='{mainSystemName}' from main pipe");
+                        return mainSystemName;
+                    }
+                }
+
+                // Если у магистрали пусто, пробуем стояк
+                if (riserId != null)
+                {
+                    Element riserElement = doc.GetElement(riserId);
+                    Pipe riserPipe = riserElement as Pipe;
+                    if (riserPipe != null)
+                    {
+                        string riserSystemName = GetElementSystemName(riserPipe);
+                        if (!string.IsNullOrEmpty(riserSystemName))
+                        {
+                            DebugLogger.Log($"[TRACER-FITTING] Got ИмяСистемы='{riserSystemName}' from riser");
+                            return riserSystemName;
+                        }
+                    }
+                }
+
+                DebugLogger.Log("[TRACER-FITTING] No ИмяСистемы found on main or riser");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[TRACER-FITTING] ERROR getting system name: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Применяет имя системы к списку элементов
+        /// </summary>
+        public static void ApplySystemNameToElements(string systemName, params Element[] elements)
+        {
+            if (string.IsNullOrEmpty(systemName)) return;
+            
+            foreach (var element in elements)
+            {
+                if (element != null)
+                {
+                    SetElementSystemName(element, systemName);
+                }
+            }
+        }
+
+        /// <summary>
         /// Копирует параметр "ИмяСистемы" от исходной трубы к целевому элементу
         /// </summary>
         public static void CopySystemNameParameter(Pipe sourcePipe, Element targetElement)
         {
             if (sourcePipe == null || targetElement == null) return;
 
-            try
+            string systemName = GetElementSystemName(sourcePipe);
+            if (!string.IsNullOrEmpty(systemName))
             {
-                // Получаем параметр ИмяСистемы от исходной трубы
-                Parameter sourceParam = sourcePipe.get_Parameter(BuiltInParameter.RBS_SYSTEM_NAME_PARAM);
-                if (sourceParam == null || string.IsNullOrEmpty(sourceParam.AsString()))
-                {
-                    DebugLogger.Log("[TRACER-FITTING] Source pipe has no system name");
-                    return;
-                }
-
-                string systemName = sourceParam.AsString();
-
-                // Устанавливаем параметр на целевом элементе
-                Parameter targetParam = targetElement.get_Parameter(BuiltInParameter.RBS_SYSTEM_NAME_PARAM);
-                if (targetParam != null && !targetParam.IsReadOnly)
-                {
-                    targetParam.Set(systemName);
-                    DebugLogger.Log($"[TRACER-FITTING] Set system name '{systemName}' on element {targetElement.Id}");
-                }
-                else
-                {
-                    DebugLogger.Log($"[TRACER-FITTING] WARNING: Could not set system name on element {targetElement.Id}");
-                }
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.Log($"[TRACER-FITTING] ERROR copying system name: {ex.Message}");
+                SetElementSystemName(targetElement, systemName);
             }
         }
 
@@ -1672,7 +1736,11 @@ namespace PluginsManager.Commands
                 Pipe riserPipe = riserElement as Pipe;
                 if (riserPipe == null) return;
 
-                CopySystemNameParameter(riserPipe, targetElement);
+                string systemName = GetElementSystemName(riserPipe);
+                if (!string.IsNullOrEmpty(systemName))
+                {
+                    SetElementSystemName(targetElement, systemName);
+                }
             }
             catch (Exception ex)
             {
