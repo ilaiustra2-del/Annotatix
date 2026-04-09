@@ -24,10 +24,10 @@ namespace HVACSuperScheme.Commands.Settings
         }
         
         public bool IsUpdaterSync { get; set; }
-        
+                
         private SettingStorage()
         {
-            IsUpdaterSync = false;
+            IsUpdaterSync = true; // По умолчанию синхронизация включена
         }
         
         public static void ReadSettings()
@@ -75,7 +75,8 @@ namespace HVACSuperScheme.Commands.Settings
         private static string GetSettingsPath()
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            return Path.Combine(appData, "Annotatix", "HVAC", "settings.json");
+            // Тот же путь что и в оригинальном SettingStorage
+            return Path.Combine(appData, "Autodesk", "Revit", "Addins", "HVACSuperSchemeSettings.cfg");
         }
     }
 }
