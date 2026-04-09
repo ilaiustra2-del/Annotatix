@@ -146,6 +146,131 @@ namespace PluginsManager.Commands
         /// </summary>
         public static PushButton SyncButton { get; set; }
         
+        /// <summary>
+        /// Проверяет и инициализирует Updater, если он ещё не создан
+        /// </summary>
+        /// <returns>true если Updater существовал или успешно создан, false при ошибке</returns>
+        /// <param name="wasJustInitialized">true если Updater был только что создан и sync запущен</param>
+        private bool EnsureUpdaterInitialized(Assembly moduleAssembly, UIApplication uiApp, out bool wasJustInitialized)
+        {
+            wasJustInitialized = false;
+            try
+            {
+                var hvacApp = moduleAssembly.GetType("HVACSuperScheme.App");
+                if (hvacApp == null)
+                {
+                    Core.DebugLogger.Log("[HVAC-INIT-RIBBON] HVACSuperScheme.App type not found");
+                    return false;
+                }
+                
+                var updaterField = hvacApp.GetField("_updater", BindingFlags.Public | BindingFlags.Static);
+                var updaterValue = updaterField?.GetValue(null);
+                
+                if (updaterValue != null)
+                {
+                    Core.DebugLogger.Log("[HVAC-INIT-RIBBON] Updater already initialized");
+                    return true;
+                }
+                
+                Core.DebugLogger.Log("[HVAC-INIT-RIBBON] Initializing Updater from ribbon command...");
+                
+                // Read settings first
+                var settingStorageType = moduleAssembly.GetType("HVACSuperScheme.Data.SettingStorage");
+                if (settingStorageType == null)
+                {
+                    settingStorageType = moduleAssembly.GetType("HVACSuperScheme.Commands.Settings.SettingStorage");
+                }
+                var readSettingsMethod = settingStorageType?.GetMethod("ReadSettings", BindingFlags.Public | BindingFlags.Static);
+                readSettingsMethod?.Invoke(null, null);
+                
+                // Store UIApplication for Idling events
+                var uiApplicationField = hvacApp.GetField("_uiApplication", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                if (uiApplicationField != null)
+                {
+                    uiApplicationField.SetValue(null, uiApp);
+                    Core.DebugLogger.Log("[HVAC-INIT-RIBBON] _uiApplication field SET");
+                }
+                
+                // Initialize element filters BEFORE creating Updater
+                var filterUtilsType = moduleAssembly.GetType("HVACSuperScheme.Data.FilterUtils");
+                var initFiltersMethod = filterUtilsType?.GetMethod("InitElementFilters", BindingFlags.Public | BindingFlags.Static);
+                initFiltersMethod?.Invoke(null, null);
+                Core.DebugLogger.Log("[HVAC-INIT-RIBBON] Element filters initialized");
+                
+                // Get AddInId from the current application
+                var addInId = uiApp.ActiveAddInId;
+                
+                // Create Updater instance
+                var updaterType = moduleAssembly.GetType("HVACSuperScheme.Updaters.Updater");
+                var updater = Activator.CreateInstance(updaterType, addInId);
+                var updaterInterface = updater as IUpdater;
+                
+                if (updaterInterface == null)
+                {
+                    Core.DebugLogger.Log("[HVAC-INIT-RIBBON] ERROR: Failed to create Updater instance");
+                    return false;
+                }
+                
+                updaterField?.SetValue(null, updater);
+                
+                // Register the updater
+                UpdaterRegistry.RegisterUpdater(updaterInterface);
+                Core.DebugLogger.Log("[HVAC-INIT-RIBBON] Updater registered");
+                
+                // Add triggers for element deletion and addition
+                try
+                {
+                    var createDeletionMethod = hvacApp.GetMethod("CreateDeletionTriggers", BindingFlags.Public | BindingFlags.Static);
+                    var createAdditionMethod = hvacApp.GetMethod("CreateAdditionTriggers", BindingFlags.Public | BindingFlags.Static);
+                    createDeletionMethod?.Invoke(null, null);
+                    createAdditionMethod?.Invoke(null, null);
+                    Core.DebugLogger.Log("[HVAC-INIT-RIBBON] Deletion and addition triggers created");
+                }
+                catch (Exception triggerEx)
+                {
+                    Core.DebugLogger.Log($"[HVAC-INIT-RIBBON] WARNING: Could not create triggers: {triggerEx.Message}");
+                }
+                
+                // Check if sync is enabled in settings and start IdlingHandler
+                var instanceProp = settingStorageType?.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
+                var settingsInstance = instanceProp?.GetValue(null);
+                var isUpdaterSyncProp = settingsInstance?.GetType().GetProperty("IsUpdaterSync");
+                var isUpdaterSync = (bool?)isUpdaterSyncProp?.GetValue(settingsInstance) ?? false;
+                Core.DebugLogger.Log($"[HVAC-INIT-RIBBON] IsUpdaterSync={isUpdaterSync}");
+                
+                if (isUpdaterSync)
+                {
+                    // Update HVACSyncState.IsSyncEnabled
+                    var hvacSyncStateType = moduleAssembly.GetType("HVAC.Module.UI.HVACSyncState");
+                    if (hvacSyncStateType != null)
+                    {
+                        var isSyncEnabledProperty = hvacSyncStateType.GetProperty("IsSyncEnabled");
+                        isSyncEnabledProperty?.SetValue(null, true);
+                        Core.DebugLogger.Log("[HVAC-INIT-RIBBON] HVACSyncState.IsSyncEnabled set to True");
+                    }
+                    
+                    // Start IdlingHandler
+                    var idlingActiveField = hvacApp.GetField("_idlingHandlerIsActive", BindingFlags.Public | BindingFlags.Static);
+                    var idlingActive = (bool?)idlingActiveField?.GetValue(null) ?? false;
+                    
+                    if (!idlingActive)
+                    {
+                        var createIdlingMethod = hvacApp.GetMethod("CreateIdlingHandler", BindingFlags.Public | BindingFlags.Static);
+                        createIdlingMethod?.Invoke(null, null);
+                        Core.DebugLogger.Log("[HVAC-INIT-RIBBON] IdlingHandler started (sync was already enabled)");
+                        wasJustInitialized = true; // Sync был запущен, toggle не нужен!
+                    }
+                }
+                
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Core.DebugLogger.Log($"[HVAC-INIT-RIBBON] ERROR: {ex.Message}");
+                return false;
+            }
+        }
+        
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
             try
@@ -178,6 +303,31 @@ namespace PluginsManager.Commands
 
                 // Получаем сборку модуля
                 var moduleAssembly = module.GetType().Assembly;
+                
+                // ИНИЦИАЛИЗАЦИЯ UPDATER - критично для работы синхронизации!
+                UIApplication uiApp = commandData.Application;
+                if (!EnsureUpdaterInitialized(moduleAssembly, uiApp, out bool wasJustInitialized))
+                {
+                    Core.DebugLogger.Log("[HVAC-RIBBON-SYNC] Failed to initialize Updater");
+                    TaskDialog.Show("HVAC", "Не удалось инициализировать Updater. Попробуйте открыть Plugins Hub.");
+                    return Result.Failed;
+                }
+                
+                // Если sync был только что запущен при инициализации - не делаем toggle!
+                if (wasJustInitialized)
+                {
+                    Core.DebugLogger.Log("[HVAC-RIBBON-SYNC] Sync was just initialized and started, showing current state");
+                    
+                    // Обновляем текст кнопки на "включена"
+                    if (SyncButton != null)
+                    {
+                        SyncButton.ItemText = "Синхронизация\nвключена";
+                        Core.DebugLogger.Log($"[HVAC-RIBBON-SYNC] Button text updated after init: {SyncButton.ItemText}");
+                    }
+                    
+                    TaskDialog.Show("HVAC", "Синхронизация чертежа с моделью включена");
+                    return Result.Succeeded;
+                }
 
                 // Получаем тип SettingStorage
                 var settingStorageType = moduleAssembly.GetType("HVACSuperScheme.Commands.Settings.SettingStorage");

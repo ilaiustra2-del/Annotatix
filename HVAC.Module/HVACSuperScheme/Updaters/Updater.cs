@@ -388,24 +388,48 @@ namespace HVACSuperScheme.Updaters
 
         public static void AddChangeParameterUpdaterForDuctTerminalsTriggers(Element ductTerminal)
         {
-            ElementId parameterId = ductTerminal.LookupParameter(Constants.PN_ADSK_UPDATER).Id;
+            var param = ductTerminal.LookupParameter(Constants.PN_ADSK_UPDATER);
+            if (param == null)
+            {
+                PluginsManager.Core.DebugLogger.Log($"[HVAC-UPDATER] WARNING: Parameter {Constants.PN_ADSK_UPDATER} not found on DuctTerminal");
+                return;
+            }
+            ElementId parameterId = param.Id;
             UpdaterRegistry.AddTrigger(App._updater.GetUpdaterId(), FilterUtils._ductTerminalFilter, Element.GetChangeTypeParameter(parameterId));
         }
         public static void CreateDuctTerminalChangeSystemNameParameterTrigger(Element ductTerminal)
         {
-            ElementId parameterId = ductTerminal.get_Parameter(BuiltInParameter.RBS_SYSTEM_NAME_PARAM).Id;
+            var param = ductTerminal.get_Parameter(BuiltInParameter.RBS_SYSTEM_NAME_PARAM);
+            if (param == null)
+            {
+                PluginsManager.Core.DebugLogger.Log("[HVAC-UPDATER] WARNING: BuiltInParameter.RBS_SYSTEM_NAME_PARAM not found on DuctTerminal");
+                return;
+            }
+            ElementId parameterId = param.Id;
             UpdaterRegistry.AddTrigger(App._updater.GetUpdaterId(), FilterUtils._ductTerminalFilter, Element.GetChangeTypeParameter(parameterId));
         }
         public static void AddChangeParameterAirFlowForDuctTerminalsTriggers(Element ductTerminal)
         {
-            ElementId parameterId = ductTerminal.LookupParameter(Constants.PN_AIR_FLOW).Id;
+            var param = ductTerminal.LookupParameter(Constants.PN_AIR_FLOW);
+            if (param == null)
+            {
+                PluginsManager.Core.DebugLogger.Log($"[HVAC-UPDATER] WARNING: Parameter {Constants.PN_AIR_FLOW} not found on DuctTerminal");
+                return;
+            }
+            ElementId parameterId = param.Id;
             UpdaterRegistry.AddTrigger(App._updater.GetUpdaterId(), FilterUtils._ductTerminalFilter, Element.GetChangeTypeParameter(parameterId));
         }
         public static void AddChangeParameterValueForSpacesTriggers(Element space)
         {
             foreach (string parameterName in Constants.MATCH_SPACE_PARAM_AND_ANNOTATION_PARAM.Keys)
             {
-                ElementId parameterId = space.LookupParameter(parameterName).Id;
+                var param = space.LookupParameter(parameterName);
+                if (param == null)
+                {
+                    PluginsManager.Core.DebugLogger.Log($"[HVAC-UPDATER] WARNING: Parameter {parameterName} not found on Space");
+                    continue;
+                }
+                ElementId parameterId = param.Id;
                 UpdaterRegistry.AddTrigger(App._updater.GetUpdaterId(), FilterUtils._spaceFilter, Element.GetChangeTypeParameter(parameterId));
             }
         }
@@ -413,7 +437,13 @@ namespace HVACSuperScheme.Updaters
         {
             foreach (string parameterName in Constants.MATCH_SPACE_PARAM_AND_ANNOTATION_PARAM.Values)
             {
-                ElementId parameterId = annotationInstance.LookupParameter(parameterName).Id;
+                var param = annotationInstance.LookupParameter(parameterName);
+                if (param == null)
+                {
+                    PluginsManager.Core.DebugLogger.Log($"[HVAC-UPDATER] WARNING: Parameter {parameterName} not found on Annotation");
+                    continue;
+                }
+                ElementId parameterId = param.Id;
                 UpdaterRegistry.AddTrigger(App._updater.GetUpdaterId(), FilterUtils._annotationFilter, Element.GetChangeTypeParameter(parameterId));
             }
         }

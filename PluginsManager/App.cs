@@ -307,29 +307,10 @@ namespace PluginsManager
                     Commands.HvacSyncToggleRibbonCommand.SyncButton = hvacSyncBtn;
                     
                     // Загружаем настройки и обновляем текст кнопки
-                    try
-                    {
-                        string settingsPath = System.IO.Path.Combine(
-                            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                            "Autodesk", "Revit", "Addins", "HVACSuperSchemeSettings.cfg");
-                        bool isSyncEnabled = true; // По умолчанию включена
-                        
-                        if (System.IO.File.Exists(settingsPath))
-                        {
-                            string json = System.IO.File.ReadAllText(settingsPath);
-                            dynamic settings = Newtonsoft.Json.JsonConvert.DeserializeObject(json);
-                            isSyncEnabled = settings?.IsUpdaterSync ?? true;
-                        }
-                        
-                        hvacSyncBtn.ItemText = isSyncEnabled 
-                            ? "Синхронизация\nвключена" 
-                            : "Синхронизация\nвыключена";
-                        Core.DebugLogger.Log($"[APP-HVAC] Sync button text initialized: {isSyncEnabled}");
-                    }
-                    catch (Exception ex) 
-                    { 
-                        Core.DebugLogger.Log($"[APP-HVAC] Error loading settings: {ex.Message}");
-                    }
+                    // ВАЖНО: При запуске Updater ещё не инициализирован (требуется UIApplication),
+                    // поэтому всегда показываем "выключена" - пользователь нажмёт для включения
+                    hvacSyncBtn.ItemText = "Синхронизация\nвыключена";
+                    Core.DebugLogger.Log("[APP-HVAC] Sync button text initialized: выключена (Updater not initialized yet)");
 
                     // Try to set icons for HVAC buttons
                     string hvacIcon = Path.Combine(assemblyDir, "HVAC.png");
