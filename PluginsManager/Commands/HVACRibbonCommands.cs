@@ -217,6 +217,28 @@ namespace PluginsManager.Commands
                     Core.DebugLogger.Log($"[HVAC-RIBBON-SYNC] Button text updated: {SyncButton.ItemText}");
                 }
 
+                // Запускаем/останавливаем IdlingHandler через ToggleIdlingHandler
+                var toggleHandlerType = moduleAssembly.GetType("HVAC.Module.Commands.ToggleIdlingHandler");
+                if (toggleHandlerType != null)
+                {
+                    var toggleHandler = Activator.CreateInstance(toggleHandlerType) as IExternalEventHandler;
+                    if (toggleHandler != null)
+                    {
+                        // Устанавливаем состояние (start/stop)
+                        var setStartMethod = toggleHandlerType.GetMethod("SetStart");
+                        setStartMethod?.Invoke(toggleHandler, new object[] { newState });
+                        
+                        // Запускаем через ExternalEvent
+                        var toggleEvent = ExternalEvent.Create(toggleHandler);
+                        toggleEvent.Raise();
+                        Core.DebugLogger.Log($"[HVAC-RIBBON-SYNC] ToggleIdlingHandler raised with start={newState}");
+                    }
+                }
+                else
+                {
+                    Core.DebugLogger.Log("[HVAC-RIBBON-SYNC] ToggleIdlingHandler type not found");
+                }
+
                 // Показываем сообщение о новом состоянии
                 string status = newState ? "включена" : "выключена";
                 TaskDialog.Show("HVAC", $"Синхронизация чертежа с моделью {status}");
