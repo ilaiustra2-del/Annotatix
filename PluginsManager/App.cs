@@ -290,10 +290,10 @@ namespace PluginsManager
 
                     PushButton hvacCompleteBtn = panelHVAC.AddItem(hvacCompleteBtnData) as PushButton;
 
-                    // Sync toggle button
+                    // Sync toggle button - сохраняем ссылку для динамического изменения текста
                     PushButtonData hvacSyncBtnData = new PushButtonData(
                         "HvacSyncToggleRibbon",
-                        "Синхронизация\nчертеж-модель",
+                        "Синхронизация\nвыключена",
                         assemblyPath,
                         "PluginsManager.Commands.HvacSyncToggleRibbonCommand"
                     );
@@ -302,6 +302,9 @@ namespace PluginsManager
                         "При включении изменения в модели автоматически отражаются на схеме.";
 
                     PushButton hvacSyncBtn = panelHVAC.AddItem(hvacSyncBtnData) as PushButton;
+                    
+                    // Сохраняем ссылку на кнопку синхронизации
+                    Commands.HvacSyncToggleRibbonCommand.SyncButton = hvacSyncBtn;
 
                     // Try to set icons for HVAC buttons
                     string hvacIcon = Path.Combine(assemblyDir, "HVAC.png");

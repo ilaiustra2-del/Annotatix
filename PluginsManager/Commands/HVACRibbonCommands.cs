@@ -39,15 +39,20 @@ namespace PluginsManager.Commands
                 {
                     Core.DebugLogger.Log("[HVAC-RIBBON] Module not loaded, attempting auto-load...");
                     
-                    // Путь к модулю HVAC
+                    // Путь к модулю HVAC (annotatix_dependencies/main/ -> annotatix_dependencies/)
                     string assemblyPath = typeof(HvacRibbonCommandBase).Assembly.Location;
                     string assemblyDir = Path.GetDirectoryName(assemblyPath);
-                    string hvacModulePath = Path.Combine(assemblyDir, "hvac", "HVAC.Module.dll");
+                    string modulesPath = Path.GetDirectoryName(assemblyDir);  // Переход на уровень выше
+                    string hvacModulePath = Path.Combine(modulesPath, "hvac", "HVAC.Module.dll");
+                    
+                    Core.DebugLogger.Log($"[HVAC-RIBBON] Assembly dir: {assemblyDir}");
+                    Core.DebugLogger.Log($"[HVAC-RIBBON] Modules path: {modulesPath}");
+                    Core.DebugLogger.Log($"[HVAC-RIBBON] HVAC module path: {hvacModulePath}");
                     
                     if (!File.Exists(hvacModulePath))
                     {
                         Core.DebugLogger.Log($"[HVAC-RIBBON] Module not found at: {hvacModulePath}");
-                        TaskDialog.Show("HVAC", "Модуль HVAC не найден. Переустановите плагин.");
+                        TaskDialog.Show("HVAC", $"Модуль HVAC не найден по пути:\n{hvacModulePath}");
                         return Result.Failed;
                     }
                     
@@ -136,12 +141,35 @@ namespace PluginsManager.Commands
     [Regeneration(RegenerationOption.Manual)]
     public class HvacSyncToggleRibbonCommand : IExternalCommand
     {
+        /// <summary>
+        /// Ссылка на кнопку синхронизации для динамического изменения текста
+        /// </summary>
+        public static PushButton SyncButton { get; set; }
+        
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
             try
             {
                 // Получаем модуль HVAC
                 var module = Core.DynamicModuleLoader.GetModuleInstance("hvac");
+                
+                // Если модуль не загружен - пытаемся загрузить автоматически
+                if (module == null)
+                {
+                    Core.DebugLogger.Log("[HVAC-RIBBON-SYNC] Module not loaded, attempting auto-load...");
+                    
+                    string assemblyPath = typeof(HvacSyncToggleRibbonCommand).Assembly.Location;
+                    string assemblyDir = Path.GetDirectoryName(assemblyPath);
+                    string modulesPath = Path.GetDirectoryName(assemblyDir);
+                    string hvacModulePath = Path.Combine(modulesPath, "hvac", "HVAC.Module.dll");
+                    
+                    if (File.Exists(hvacModulePath))
+                    {
+                        Core.DynamicModuleLoader.LoadModule("hvac", hvacModulePath);
+                        module = Core.DynamicModuleLoader.GetModuleInstance("hvac");
+                    }
+                }
+                
                 if (module == null)
                 {
                     TaskDialog.Show("HVAC", "Модуль HVAC не загружен. Откройте Plugins Hub для авторизации.");
@@ -155,7 +183,7 @@ namespace PluginsManager.Commands
                 var settingStorageType = moduleAssembly.GetType("HVACSuperScheme.Commands.Settings.SettingStorage");
                 if (settingStorageType == null)
                 {
-                    Core.DebugLogger.Log($"[HVAC-RIBBON] SettingStorage type not found");
+                    Core.DebugLogger.Log("[HVAC-RIBBON-SYNC] SettingStorage type not found");
                     TaskDialog.Show("HVAC", "Не найден тип SettingStorage");
                     return Result.Failed;
                 }
@@ -178,7 +206,16 @@ namespace PluginsManager.Commands
                 var saveSettingsMethod = settingStorageType.GetMethod("SaveSettings");
                 saveSettingsMethod?.Invoke(null, null);
 
-                Core.DebugLogger.Log($"[HVAC-RIBBON] Sync toggled to: {newState}");
+                Core.DebugLogger.Log($"[HVAC-RIBBON-SYNC] Sync toggled to: {newState}");
+
+                // Обновляем текст кнопки
+                if (SyncButton != null)
+                {
+                    SyncButton.ItemText = newState 
+                        ? "Синхронизация\nвключена" 
+                        : "Синхронизация\nвыключена";
+                    Core.DebugLogger.Log($"[HVAC-RIBBON-SYNC] Button text updated: {SyncButton.ItemText}");
+                }
 
                 // Показываем сообщение о новом состоянии
                 string status = newState ? "включена" : "выключена";
@@ -188,7 +225,7 @@ namespace PluginsManager.Commands
             }
             catch (Exception ex)
             {
-                Core.DebugLogger.Log($"[HVAC-RIBBON] ERROR in sync toggle: {ex.Message}");
+                Core.DebugLogger.Log($"[HVAC-RIBBON-SYNC] ERROR: {ex.Message}");
                 TaskDialog.Show("HVAC", $"Ошибка: {ex.Message}");
                 return Result.Failed;
             }
