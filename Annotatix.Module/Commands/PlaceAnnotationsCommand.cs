@@ -294,7 +294,7 @@ namespace Annotatix.Module.Commands
                     // Get the ACTUAL reference that the tag uses
                     // This is critical for SetLeaderEnd and SetLeaderElbow
                     var taggedRefs = newTag.GetTaggedReferences();
-                    Reference tagRef = (taggedRefs != null && taggedRefs.Length > 0) ? taggedRefs[0] : elementRef;
+                    Reference tagRef = (taggedRefs != null && taggedRefs.Count > 0) ? taggedRefs[0] : elementRef;
                     
                     // Set leader end condition FIRST (before setting positions)
                     bool isFreeLeader = annotationData.LeaderType?.Equals("Free", StringComparison.OrdinalIgnoreCase) == true;

@@ -465,7 +465,7 @@ namespace Annotatix.Module.Core
                             // CRITICAL: Get the ACTUAL reference that the tag uses
                             // GetTaggedReferences returns the references the tag is attached to
                             var taggedRefs = indTag.GetTaggedReferences();
-                            if (taggedRefs != null && taggedRefs.Length > 0)
+                            if (taggedRefs != null && taggedRefs.Count > 0)
                             {
                                 elemRef = taggedRefs[0]; // Use the first tagged reference
                                 DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Got tagged reference: {elemRef.ElementId}, ElementReferenceType={elemRef.ElementReferenceType}");
@@ -559,16 +559,102 @@ namespace Annotatix.Module.Core
                                 }
                             }
                             
-                            // If still no leader end, use head position as fallback
+                            // If still no leader end, compute it from element geometry
                             if (data.LeaderEndModel == null)
                             {
-                                data.LeaderEndModel = new Coordinates3D
+                                // For Free leader without elbow, calculate the closest point on element
+                                // This is where the leader line should point to
+                                XYZ computedLeaderEnd = null;
+                                
+                                try
                                 {
-                                    X = headPoint.X,
-                                    Y = headPoint.Y,
-                                    Z = headPoint.Z
-                                };
-                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Using head as leader end fallback");
+                                    // Get element geometry to find closest point
+                                    if (taggedElem is MEPCurve mepCurve)
+                                    {
+                                        // For pipes/ducts, get closest point on curve
+                                        LocationCurve lc = mepCurve.Location as LocationCurve;
+                                        if (lc != null && lc.Curve != null)
+                                        {
+                                            computedLeaderEnd = lc.Curve.Project(headPoint).XYZPoint;
+                                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Computed leader end from MEPCurve projection: ({computedLeaderEnd.X:F2}, {computedLeaderEnd.Y:F2}, {computedLeaderEnd.Z:F2})");
+                                        }
+                                    }
+                                    else if (taggedElem.Location is LocationCurve lc2 && lc2.Curve != null)
+                                    {
+                                        // For other curve-based elements
+                                        computedLeaderEnd = lc2.Curve.Project(headPoint).XYZPoint;
+                                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Computed leader end from LocationCurve projection: ({computedLeaderEnd.X:F2}, {computedLeaderEnd.Y:F2}, {computedLeaderEnd.Z:F2})");
+                                    }
+                                    else if (taggedElem.Location is LocationPoint lp)
+                                    {
+                                        // For point-based elements, use the location point
+                                        computedLeaderEnd = lp.Point;
+                                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Using element location point as leader end: ({computedLeaderEnd.X:F2}, {computedLeaderEnd.Y:F2}, {computedLeaderEnd.Z:F2})");
+                                    }
+                                    else
+                                    {
+                                        // Try to get geometry and find closest point
+                                        var geomElem = taggedElem.get_Geometry(new Options());
+                                        if (geomElem != null)
+                                        {
+                                            double minDist = double.MaxValue;
+                                            foreach (var geomObj in geomElem)
+                                            {
+                                                if (geomObj is Curve curve)
+                                                {
+                                                    var proj = curve.Project(headPoint);
+                                                    if (proj != null && proj.Distance < minDist)
+                                                    {
+                                                        minDist = proj.Distance;
+                                                        computedLeaderEnd = proj.XYZPoint;
+                                                    }
+                                                }
+                                                else if (geomObj is Solid solid && solid.Volume > 0)
+                                                {
+                                                    // Find closest point on solid faces
+                                                    foreach (Face face in solid.Faces)
+                                                    {
+                                                        var proj = face.Project(headPoint);
+                                                        if (proj != null && proj.Distance < minDist)
+                                                        {
+                                                            minDist = proj.Distance;
+                                                            computedLeaderEnd = proj.XYZPoint;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if (computedLeaderEnd != null)
+                                            {
+                                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Computed leader end from geometry projection: ({computedLeaderEnd.X:F2}, {computedLeaderEnd.Y:F2}, {computedLeaderEnd.Z:F2})");
+                                            }
+                                        }
+                                    }
+                                }
+                                catch (Exception geomEx)
+                                {
+                                    DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not compute leader end from geometry: {geomEx.Message}");
+                                }
+                                
+                                // Use computed point or fallback to head position
+                                if (computedLeaderEnd != null)
+                                {
+                                    data.LeaderEndModel = new Coordinates3D
+                                    {
+                                        X = computedLeaderEnd.X,
+                                        Y = computedLeaderEnd.Y,
+                                        Z = computedLeaderEnd.Z
+                                    };
+                                }
+                                else
+                                {
+                                    data.LeaderEndModel = new Coordinates3D
+                                    {
+                                        X = headPoint.X,
+                                        Y = headPoint.Y,
+                                        Z = headPoint.Z
+                                    };
+                                    DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Using head as leader end fallback");
+                                }
                             }
                             
                             // Convert leader end to view coordinates
@@ -626,15 +712,105 @@ namespace Annotatix.Module.Core
                     data.FamilyName = "SpotDimension";
                     data.TypeName = spotDim.SpotDimensionType?.Name ?? "SpotDimension";
                     
-                    // Get the location point (this is where the elevation mark is placed)
-                    if (spotDim.Location is LocationPoint locPoint)
+                    // SpotDimension may not have a valid Location, use References instead
+                    XYZ headPoint = null;
+                    XYZ leaderEndPoint = null;
+                    
+                    // Try to get position from References first (most reliable for SpotDimension)
+                    try
+                    {
+                        var refs = spotDim.References;
+                        if (refs != null && refs.Size > 0)
+                        {
+                            var firstRef = refs.get_Item(0);
+                            if (firstRef != null && firstRef.GlobalPoint != null)
+                            {
+                                leaderEndPoint = firstRef.GlobalPoint;
+                                data.LeaderEndModel = new Coordinates3D
+                                {
+                                    X = leaderEndPoint.X,
+                                    Y = leaderEndPoint.Y,
+                                    Z = leaderEndPoint.Z
+                                };
+                                data.LeaderEndView = ConvertToViewCoordinates(data.LeaderEndModel);
+                                data.LeaderEnd = new Coordinates2D 
+                                { 
+                                    X = data.LeaderEndView.X, 
+                                    Y = data.LeaderEndView.Y 
+                                };
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension LeaderEnd from GlobalPoint: ({leaderEndPoint.X:F2}, {leaderEndPoint.Y:F2}, {leaderEndPoint.Z:F2})");
+                            }
+                        }
+                    }
+                    catch (Exception refEx)
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get SpotDimension references: {refEx.Message}");
+                    }
+                    
+                    // Get Head position from Location or fallback
+                    if (spotDim.Location is LocationPoint locPoint && locPoint.Point != null)
+                    {
+                        headPoint = locPoint.Point;
+                    }
+                    else
+                    {
+                        // Fallback: use the leader end point as head (common for elevation marks)
+                        // Or get from the spot dimension's text position
+                        try
+                        {
+                            // Try to get the text position - SpotDimension doesn't have direct API for this
+                            // Use element geometry as fallback
+                            var geomElem = spotDim.get_Geometry(new Options());
+                            if (geomElem != null)
+                            {
+                                foreach (var geomObj in geomElem)
+                                {
+                                    if (geomObj is GeometryInstance geomInst)
+                                    {
+                                        // Get symbol geometry
+                                        var symbolGeom = geomInst.GetSymbolGeometry();
+                                        foreach (var obj in symbolGeom)
+                                        {
+                                            if (obj is Curve curve)
+                                            {
+                                                // Use endpoint of a curve as approximation
+                                                headPoint = curve.GetEndPoint(1);
+                                                break;
+                                            }
+                                        }
+                                        if (headPoint != null) break;
+                                    }
+                                    else if (geomObj is Curve c)
+                                    {
+                                        // Use endpoint of leader curve
+                                        headPoint = c.GetEndPoint(1);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+                        
+                        // Final fallback: offset from leader end
+                        if (headPoint == null && leaderEndPoint != null)
+                        {
+                            // Offset by a small amount in view direction
+                            headPoint = new XYZ(
+                                leaderEndPoint.X + 0.5,
+                                leaderEndPoint.Y,
+                                leaderEndPoint.Z
+                            );
+                        }
+                    }
+                    
+                    if (headPoint != null)
                     {
                         // Save full 3D model coordinates
                         data.HeadModelPosition = new Coordinates3D
                         {
-                            X = locPoint.Point.X,
-                            Y = locPoint.Point.Y,
-                            Z = locPoint.Point.Z
+                            X = headPoint.X,
+                            Y = headPoint.Y,
+                            Z = headPoint.Z
                         };
                         
                         // Convert to view coordinates
@@ -659,13 +835,21 @@ namespace Annotatix.Module.Core
                         try
                         {
                             // The elevation is stored in the Value property
-                            double elevationValue = spotDim.Value;
-                            // Convert from feet to meters (or keep in project units)
-                            data.TagText = $"{elevationValue:F3}"; // Store elevation value
+                            double? elevationValue = spotDim.Value;
+                            if (elevationValue.HasValue)
+                            {
+                                // Convert from feet to meters (or keep in project units)
+                                data.TagText = $"{elevationValue.Value:F3}"; // Store elevation value
+                            }
+                            else
+                            {
+                                data.TagText = "";
+                            }
                         }
                         catch
                         {
-                            data.TagText = spotDim.TagText ?? "";
+                            // SpotDimension doesn't have TagText property
+                            data.TagText = "";
                         }
                                                         
                         // Store leader info
