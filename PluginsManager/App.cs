@@ -333,6 +333,73 @@ namespace PluginsManager
                     Core.DebugLogger.Log($"[APP] WARNING: Could not create HVAC panel: {ex.Message}");
                 }
 
+                // ── Annotatix ribbon panel ──────────────────────────────
+                try
+                {
+                    RibbonPanel panelAnnotatix = application.CreateRibbonPanel(tabName, "Annotatix");
+
+                    // Record toggle button - сохраняем ссылку для динамического изменения текста
+                    PushButtonData annotatixRecordBtnData = new PushButtonData(
+                        "AnnotatixRecordRibbon",
+                        "Начать\nзапись",
+                        assemblyPath,
+                        "PluginsManager.Commands.AnnotatixRecordRibbonCommand"
+                    );
+                    annotatixRecordBtnData.ToolTip =
+                        "Записать состояние вида до и после оформления для обучения ML модели.\n" +
+                        "Автоматизация расстановки типовых аннотаций.";
+
+                    PushButton annotatixRecordBtn = panelAnnotatix.AddItem(annotatixRecordBtnData) as PushButton;
+                    
+                    // Set icon for Annotatix button (same pattern as Tracer icons)
+                    string annotatixIconPath = Path.Combine(assemblyDir, "Annotatix_32x.png");
+                    if (File.Exists(annotatixIconPath))
+                    {
+                        try 
+                        { 
+                            annotatixRecordBtn.LargeImage = new BitmapImage(new Uri(annotatixIconPath)); 
+                            Core.DebugLogger.Log($"[APP] Annotatix icon loaded from: {annotatixIconPath}"); 
+                        }
+                        catch (Exception ex) { Core.DebugLogger.Log($"[APP] WARNING: Failed to load Annotatix icon: {ex.Message}"); }
+                    }
+                    else
+                    {
+                        Core.DebugLogger.Log($"[APP] Annotatix icon not found at: {annotatixIconPath}");
+                    }
+                    
+                    // Сохраняем ссылку на кнопку записи для динамического изменения текста
+                    Commands.AnnotatixRecordRibbonCommand.RecordButton = annotatixRecordBtn;
+
+                    // Place annotations button - размещение аннотаций из последней записи
+                    PushButtonData placeAnnotationsBtnData = new PushButtonData(
+                        "AnnotatixPlaceAnnotationsRibbon",
+                        "Разместить\nаннотации",
+                        assemblyPath,
+                        "PluginsManager.Commands.AnnotatixPlaceAnnotationsRibbonCommand"
+                    );
+                    placeAnnotationsBtnData.ToolTip =
+                        "Размещает аннотации из последней записи на текущем виде.\n" +
+                        "Используйте для тестирования записанных аннотаций.";
+
+                    PushButton placeAnnotationsBtn = panelAnnotatix.AddItem(placeAnnotationsBtnData) as PushButton;
+
+                    // Set icon for Place Annotations button
+                    if (File.Exists(annotatixIconPath))
+                    {
+                        try
+                        {
+                            placeAnnotationsBtn.LargeImage = new BitmapImage(new Uri(annotatixIconPath));
+                        }
+                        catch { }
+                    }
+
+                    Core.DebugLogger.Log("[APP] Annotatix ribbon panel created");
+                }
+                catch (Exception ex)
+                {
+                    Core.DebugLogger.Log($"[APP] WARNING: Could not create Annotatix panel: {ex.Message}");
+                }
+
                 // ── Inject keyboard shortcuts (CR / СК) if absent ──────────
                 try
                 {

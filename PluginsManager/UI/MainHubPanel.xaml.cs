@@ -1194,6 +1194,13 @@ namespace PluginsManager.UI
                         else
                             LoadAndActivateTracerModule(modulesPath);
                         break;
+                    
+                    case "annotatix":
+                        if (!CheckModuleFilesExist(modulesPath, "annotatix", "Annotatix.Module.dll"))
+                            missingModules.Add("annotatix");
+                        else
+                            LoadAndActivateAnnotatixModule(modulesPath);
+                        break;
                         
                     case "full":
                         // Check all three modules
@@ -1203,6 +1210,7 @@ namespace PluginsManager.UI
                         bool autoNumberingExists = CheckModuleFilesExist(modulesPath, "autonumbering", "AutoNumbering.Module.dll");
                         bool clashResolveExists = CheckModuleFilesExist(modulesPath, "clash_resolve", "ClashResolve.Module.dll");
                         bool tracerExists = CheckModuleFilesExist(modulesPath, "tracer", "Tracer.Module.dll");
+                        bool annotatixExists = CheckModuleFilesExist(modulesPath, "annotatix", "Annotatix.Module.dll");
                         
                         if (!dwg2rvtExists)
                             missingModules.Add("dwg2rvt");
@@ -1233,8 +1241,13 @@ namespace PluginsManager.UI
                             missingModules.Add("tracer");
                         else
                             LoadAndActivateTracerModule(modulesPath);
-                            
-                        if (dwg2rvtExists && hvacExists && familySyncExists && autoNumberingExists && clashResolveExists && tracerExists)
+                                                
+                        if (!annotatixExists)
+                            missingModules.Add("annotatix");
+                        else
+                            LoadAndActivateAnnotatixModule(modulesPath);
+                                                
+                        if (dwg2rvtExists && hvacExists && familySyncExists && autoNumberingExists && clashResolveExists && tracerExists && annotatixExists)
                             System.Diagnostics.Debug.WriteLine("[HUB] All modules activated (full access)");
                         break;
                         
@@ -1525,6 +1538,30 @@ namespace PluginsManager.UI
             {
                 System.Diagnostics.Debug.WriteLine($"[HUB] Error loading Tracer module: {ex.Message}");
                 Core.DebugLogger.Log($"[HUB] ERROR: Failed to load Tracer module - {ex.Message}");
+            }
+        }
+        
+        private void LoadAndActivateAnnotatixModule(string modulesPath)
+        {
+            try
+            {
+                var moduleDllPath = Path.Combine(modulesPath, "annotatix", "Annotatix.Module.dll");
+                System.Diagnostics.Debug.WriteLine($"[HUB] Loading Annotatix module from: {moduleDllPath}");
+                
+                if (Core.DynamicModuleLoader.LoadModule("annotatix", moduleDllPath))
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] Annotatix module loaded successfully");
+                    Core.DebugLogger.Log("[APP-AUTOAUTH] Module loaded: annotatix");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[HUB] Failed to load Annotatix module");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[HUB] Error loading Annotatix module: {ex.Message}");
+                Core.DebugLogger.Log($"[HUB] ERROR: Failed to load Annotatix module - {ex.Message}");
             }
         }
     }

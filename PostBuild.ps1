@@ -97,7 +97,12 @@ $TracerFiles = @(
     "Tracer.Module.pdb"
 )
 
-$ExcludePatterns = $MainFiles + $Dwg2rvtFiles + $HvacFiles + $FamilySyncFiles + $AutoNumberingFiles + $ClashResolveFiles + $TracerFiles + @("dwg2rvt.dll", "dwg2rvt.pdb")
+$AnnotatixFiles = @(
+    "Annotatix.Module.dll",
+    "Annotatix.Module.pdb"
+)
+
+$ExcludePatterns = $MainFiles + $Dwg2rvtFiles + $HvacFiles + $FamilySyncFiles + $AutoNumberingFiles + $ClashResolveFiles + $TracerFiles + $AnnotatixFiles + @("dwg2rvt.dll", "dwg2rvt.pdb")
 
 # ── Multi-version structure: 2024 and 2025 subfolders ────────────────────────
 # Each subfolder is a complete, standalone installation:
@@ -120,9 +125,10 @@ foreach ($RevitVer in $RevitVersions) {
     $AutoNumberingFolder = [System.IO.Path]::Combine($DependenciesFolder, "autonumbering")
     $ClashResolveFolder  = [System.IO.Path]::Combine($DependenciesFolder, "clash_resolve")
     $TracerFolder        = [System.IO.Path]::Combine($DependenciesFolder, "tracer")
+    $AnnotatixFolder     = [System.IO.Path]::Combine($DependenciesFolder, "annotatix")
     $LogsFolder          = [System.IO.Path]::Combine($DependenciesFolder, "logs")
 
-    foreach ($folder in @($VerSubDir, $DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder, $FamilySyncFolder, $AutoNumberingFolder, $ClashResolveFolder, $TracerFolder, $LogsFolder)) {
+    foreach ($folder in @($VerSubDir, $DependenciesFolder, $MainFolder, $Dwg2rvtFolder, $HvacFolder, $FamilySyncFolder, $AutoNumberingFolder, $ClashResolveFolder, $TracerFolder, $AnnotatixFolder, $LogsFolder)) {
         if (-not (Test-Path $folder)) {
             New-Item -ItemType Directory -Path $folder -Force | Out-Null
             Write-Host "Created directory: $folder"
@@ -203,6 +209,16 @@ foreach ($RevitVer in $RevitVersions) {
         }
     }
 
+    # Copy Annotatix module files
+    Write-Host "Copying Annotatix module..."
+    foreach ($file in $AnnotatixFiles) {
+        $sourcePath = [System.IO.Path]::Combine($TargetDir, $file)
+        if (Test-Path $sourcePath) {
+            Copy-Item -Path $sourcePath -Destination $AnnotatixFolder -Force
+            Write-Host "  → $RevitVer/annotatix/$file"
+        }
+    }
+
     # Copy shared dependencies to main folder
     Write-Host "Copying shared dependencies to $RevitVer/main/..."
     Get-ChildItem -Path $TargetDir -File | Where-Object {
@@ -249,6 +265,29 @@ foreach ($RevitVer in $RevitVersions) {
         if (Test-Path $iconSource) {
             Copy-Item -Path $iconSource -Destination $MainFolder -Force
             Write-Host "  → $RevitVer/main/$icon"
+        }
+    }
+
+    # Copy Annotatix icons folder
+    $AnnotatixIconsSource = [System.IO.Path]::Combine($ProjectDir, "UI", "icons", "Annotatix_icons")
+    $AnnotatixIconsDest   = [System.IO.Path]::Combine($DestIcons, "Annotatix_icons")
+    if (Test-Path $AnnotatixIconsSource) {
+        if (-not (Test-Path $AnnotatixIconsDest)) {
+            New-Item -ItemType Directory -Path $AnnotatixIconsDest -Force | Out-Null
+        }
+        Copy-Item -Path "$AnnotatixIconsSource\*" -Destination $AnnotatixIconsDest -Force -Recurse
+        Write-Host "  → $RevitVer/main/UI/icons/Annotatix_icons/"
+    }
+
+    # Copy Annotatix icon to main folder (for ribbon button, same pattern as Tracer)
+    # Use Get-ChildItem to avoid encoding issues with Cyrillic folder name
+    # Note: Annotatix icons are in $ProjectDir\UI\icons, not $SourceIcons (PluginsManager)
+    $AnnotatixIconsPath = [System.IO.Path]::Combine($ProjectDir, "UI", "icons", "Annotatix_icons")
+    if (Test-Path $AnnotatixIconsPath) {
+        $AnnotatixIconFile = Get-ChildItem -Path $AnnotatixIconsPath -Recurse -Filter "*32x*.png" | Select-Object -First 1
+        if ($AnnotatixIconFile) {
+            Copy-Item -Path $AnnotatixIconFile.FullName -Destination "$MainFolder\Annotatix_32x.png" -Force
+            Write-Host "  → $RevitVer/main/Annotatix_32x.png"
         }
     }
 
