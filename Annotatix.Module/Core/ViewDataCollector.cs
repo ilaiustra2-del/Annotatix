@@ -716,13 +716,18 @@ namespace Annotatix.Module.Core
                     XYZ headPoint = null;
                     XYZ leaderEndPoint = null;
                     
+                    // Debug: log what SpotDimension properties are available
+                    DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension analysis: HasLeader={spotDim.HasLeader}, View={spotDim.View?.Name}");
+                    
                     // Try to get position from References first (most reliable for SpotDimension)
                     try
                     {
                         var refs = spotDim.References;
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension References: Size={refs?.Size ?? -1}");
                         if (refs != null && refs.Size > 0)
                         {
                             var firstRef = refs.get_Item(0);
+                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR] FirstRef: ElementId={firstRef?.ElementId}, ElementReferenceType={firstRef?.ElementReferenceType}, GlobalPoint={firstRef?.GlobalPoint}");
                             if (firstRef != null && firstRef.GlobalPoint != null)
                             {
                                 leaderEndPoint = firstRef.GlobalPoint;
@@ -739,6 +744,41 @@ namespace Annotatix.Module.Core
                                     Y = data.LeaderEndView.Y 
                                 };
                                 DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension LeaderEnd from GlobalPoint: ({leaderEndPoint.X:F2}, {leaderEndPoint.Y:F2}, {leaderEndPoint.Z:F2})");
+                            }
+                            else if (firstRef != null)
+                            {
+                                // Reference exists but GlobalPoint is null - get element and use its location
+                                var refElem = _document.GetElement(firstRef.ElementId);
+                                if (refElem != null)
+                                {
+                                    if (refElem.Location is LocationPoint lp)
+                                    {
+                                        leaderEndPoint = lp.Point;
+                                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension LeaderEnd from referenced element location: ({leaderEndPoint.X:F2}, {leaderEndPoint.Y:F2}, {leaderEndPoint.Z:F2})");
+                                    }
+                                    else if (refElem.Location is LocationCurve lc && lc.Curve != null)
+                                    {
+                                        leaderEndPoint = lc.Curve.Evaluate(0.5, true);
+                                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension LeaderEnd from referenced curve midpoint: ({leaderEndPoint.X:F2}, {leaderEndPoint.Y:F2}, {leaderEndPoint.Z:F2})");
+                                    }
+                                }
+                                
+                                // Store the computed leader end
+                                if (leaderEndPoint != null)
+                                {
+                                    data.LeaderEndModel = new Coordinates3D
+                                    {
+                                        X = leaderEndPoint.X,
+                                        Y = leaderEndPoint.Y,
+                                        Z = leaderEndPoint.Z
+                                    };
+                                    data.LeaderEndView = ConvertToViewCoordinates(data.LeaderEndModel);
+                                    data.LeaderEnd = new Coordinates2D 
+                                    { 
+                                        X = data.LeaderEndView.X, 
+                                        Y = data.LeaderEndView.Y 
+                                    };
+                                }
                             }
                         }
                     }
