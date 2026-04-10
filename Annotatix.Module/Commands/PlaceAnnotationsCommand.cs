@@ -496,55 +496,152 @@ namespace Annotatix.Module.Commands
             {
                 DebugLogger.Log($"[ANNOTATIX-PLACE] Attempting to place SpotDimension: {annotationData.TypeName}");
                 
-                // SpotDimension creation requires specific geometry and references
-                // This is a placeholder - SpotDimension creation is complex
-                // For now, log the attempt and skip
-                
                 // Find the SpotDimensionType
                 var spotDimTypes = new FilteredElementCollector(doc)
                     .OfClass(typeof(SpotDimensionType))
-                    .Cast<SpotDimensionType>()
-                    .Where(t => t.Name == annotationData.TypeName || t.Name.Contains("Отметка"))
-                    .ToList();
+                    .Cast<SpotDimensionType>();
                 
-                if (spotDimTypes.Count == 0)
+                SpotDimensionType spotDimType = null;
+                
+                // Try to find by exact name first
+                foreach (var t in spotDimTypes)
+                {
+                    if (t.Name == annotationData.TypeName)
+                    {
+                        spotDimType = t;
+                        DebugLogger.Log($"[ANNOTATIX-PLACE] Found exact SpotDimensionType: {t.Name}");
+                        break;
+                    }
+                }
+                
+                // Fallback: try partial match
+                if (spotDimType == null)
+                {
+                    spotDimTypes = new FilteredElementCollector(doc)
+                        .OfClass(typeof(SpotDimensionType))
+                        .Cast<SpotDimensionType>();
+                        
+                    foreach (var t in spotDimTypes)
+                    {
+                        if (t.Name.Contains("Отметка") || t.Name.Contains("Elevation") ||
+                            t.Name.Contains("Схема"))
+                        {
+                            spotDimType = t;
+                            DebugLogger.Log($"[ANNOTATIX-PLACE] Found partial match SpotDimensionType: {t.Name}");
+                            break;
+                        }
+                    }
+                }
+                
+                if (spotDimType == null)
                 {
                     DebugLogger.Log($"[ANNOTATIX-PLACE] SpotDimensionType not found: {annotationData.TypeName}");
                     return false;
                 }
                 
-                var spotDimType = spotDimTypes.First();
-                DebugLogger.Log($"[ANNOTATIX-PLACE] Found SpotDimensionType: {spotDimType.Name}");
-                
-                // If we have a tagged element, try to create the spot dimension
-                if (annotationData.TaggedElementId != null && annotationData.TaggedElementId > 0)
+                // Check if we have a tagged element
+                if (annotationData.TaggedElementId == null || annotationData.TaggedElementId == 0)
                 {
-                    var taggedElement = doc.GetElement(new ElementId(annotationData.TaggedElementId.Value));
-                    if (taggedElement != null)
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] SpotDimension has no tagged element");
+                    return false;
+                }
+                
+                var taggedElement = doc.GetElement(new ElementId(annotationData.TaggedElementId.Value));
+                if (taggedElement == null)
+                {
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] Tagged element {annotationData.TaggedElementId} not found");
+                    return false;
+                }
+                
+                // Get reference for the element
+                Reference elemRef = GetReferenceForElement(taggedElement, view);
+                if (elemRef == null)
+                {
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] Could not get reference for SpotDimension element");
+                    return false;
+                }
+                
+                // Get position points
+                XYZ headPosition; // End point - where the text appears
+                XYZ origin;       // Origin - point on the reference to evaluate
+                XYZ bend;         // Bend point - elbow of the leader
+                
+                // Use model coordinates if available
+                if (annotationData.HeadModelPosition != null && annotationData.HeadModelPosition.X != 0)
+                {
+                    headPosition = new XYZ(
+                        annotationData.HeadModelPosition.X,
+                        annotationData.HeadModelPosition.Y,
+                        annotationData.HeadModelPosition.Z
+                    );
+                }
+                else
+                {
+                    // Fallback - use element location
+                    if (taggedElement.Location is LocationPoint lp)
                     {
-                        // Get the reference point
-                        XYZ refPoint = null;
-                        if (taggedElement.Location is LocationPoint locPoint)
-                        {
-                            refPoint = locPoint.Point;
-                        }
-                        else if (taggedElement.Location is LocationCurve locCurve)
-                        {
-                            refPoint = locCurve.Curve.Evaluate(0.5, true);
-                        }
-                        
-                        if (refPoint != null)
-                        {
-                            // Spot dimensions need special handling based on view type
-                            // For now, just log
-                            DebugLogger.Log($"[ANNOTATIX-PLACE] SpotDimension placement not fully implemented yet. Would place at: {refPoint}");
-                            // TODO: Implement actual SpotDimension creation
-                            // doc.Create.NewSpotDimension(view, spotDimType, ref, point);
-                        }
+                        headPosition = lp.Point;
+                    }
+                    else if (taggedElement.Location is LocationCurve lc)
+                    {
+                        headPosition = lc.Curve.Evaluate(0.5, true);
+                    }
+                    else
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-PLACE] Cannot determine SpotDimension position");
+                        return false;
                     }
                 }
                 
-                return false; // Not implemented yet
+                // For SpotDimension:
+                // - origin: the point on the reference where elevation is measured
+                // - end: where the text/annotation head appears
+                // - bend: the elbow point on the leader
+                // - refPt: same as origin for simplicity
+                
+                origin = headPosition; // Point to measure elevation
+                
+                // End point is offset from origin (where the text appears)
+                // Typically offset in the direction perpendicular to view
+                XYZ end = headPosition + new XYZ(0.5, 0.5, 0); // Small offset for visibility
+                
+                // Bend point (elbow) - if recorded
+                if (annotationData.HasElbow && annotationData.ElbowModelPosition != null)
+                {
+                    bend = new XYZ(
+                        annotationData.ElbowModelPosition.X,
+                        annotationData.ElbowModelPosition.Y,
+                        annotationData.ElbowModelPosition.Z
+                    );
+                }
+                else
+                {
+                    // Default bend between origin and end
+                    bend = (origin + end) / 2.0;
+                }
+                
+                bool hasLeader = annotationData.HasLeader;
+                
+                // Create the SpotDimension
+                SpotDimension spotDim = doc.Create.NewSpotElevation(
+                    view,
+                    elemRef,
+                    origin,
+                    bend,
+                    end,
+                    origin, // refPt same as origin
+                    hasLeader
+                );
+                
+                if (spotDim != null)
+                {
+                    // Set the SpotDimensionType
+                    spotDim.SpotDimensionType = spotDimType;
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] Created SpotDimension {spotDim.Id} at ({origin.X:F2}, {origin.Y:F2}, {origin.Z:F2})");
+                    return true;
+                }
+                
+                return false;
             }
             catch (Exception ex)
             {

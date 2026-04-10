@@ -460,46 +460,66 @@ namespace Annotatix.Module.Core
                         if (taggedElem != null)
                         {
                             XYZ leaderEndModelPoint = null;
+                            Reference elemRef = null;
                             
-                            // For attached leader, get the actual attachment point from the tag
-                            if (leaderEndCondition == LeaderEndCondition.Attached)
+                            // Get the reference for the tagged element (needed for GetLeaderEnd and GetLeaderElbow)
+                            try
                             {
-                                // Try to get the actual leader end point from the tag
+                                if (taggedElem is MEPCurve mepCurve)
+                                {
+                                    LocationCurve lc = mepCurve.Location as LocationCurve;
+                                    if (lc != null && lc.Curve != null)
+                                    {
+                                        elemRef = lc.Curve.Reference;
+                                    }
+                                }
+                                if (elemRef == null)
+                                {
+                                    elemRef = new Reference(taggedElem);
+                                }
+                            }
+                            catch (Exception refEx)
+                            {
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get element reference: {refEx.Message}");
+                            }
+                            
+                            // Get leader end position
+                            // For Free leaders: GetLeaderEnd returns where the arrow points
+                            // For Attached leaders: the end is attached to the element
+                            if (leaderEndCondition == LeaderEndCondition.Free && elemRef != null)
+                            {
                                 try
                                 {
-                                    // Get the reference for the tagged element
-                                    Reference elemRef = null;
-                                    if (taggedElem is MEPCurve mepCurve)
+                                    leaderEndModelPoint = indTag.GetLeaderEnd(elemRef);
+                                    if (leaderEndModelPoint != null)
                                     {
-                                        LocationCurve lc = mepCurve.Location as LocationCurve;
-                                        if (lc != null && lc.Curve != null)
+                                        data.LeaderEndModel = new Coordinates3D
                                         {
-                                            elemRef = lc.Curve.Reference;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        elemRef = new Reference(taggedElem);
-                                    }
-                                    
-                                    if (elemRef != null)
-                                    {
-                                        // Get the actual leader end point in model coordinates
-                                        leaderEndModelPoint = indTag.GetLeaderEnd(elemRef);
-                                        if (leaderEndModelPoint != null)
-                                        {
-                                            data.LeaderEndModel = new Coordinates3D
-                                            {
-                                                X = leaderEndModelPoint.X,
-                                                Y = leaderEndModelPoint.Y,
-                                                Z = leaderEndModelPoint.Z
-                                            };
-                                        }
+                                            X = leaderEndModelPoint.X,
+                                            Y = leaderEndModelPoint.Y,
+                                            Z = leaderEndModelPoint.Z
+                                        };
+                                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Free leader end from GetLeaderEnd: ({leaderEndModelPoint.X:F2}, {leaderEndModelPoint.Y:F2}, {leaderEndModelPoint.Z:F2})");
                                     }
                                 }
                                 catch (Exception leaderEx)
                                 {
-                                    DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get leader end: {leaderEx.Message}");
+                                    DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get Free leader end: {leaderEx.Message}");
+                                }
+                            }
+                            else if (leaderEndCondition == LeaderEndCondition.Attached)
+                            {
+                                // For attached leader, get the attachment point
+                                try
+                                {
+                                    if (elemRef != null)
+                                    {
+                                        leaderEndModelPoint = indTag.GetLeaderEnd(elemRef);
+                                    }
+                                }
+                                catch
+                                {
+                                    // Attached leaders may not have GetLeaderEnd, use element location
                                 }
                                 
                                 // Fallback: use element location
@@ -514,59 +534,43 @@ namespace Annotatix.Module.Core
                                     {
                                         leaderEndModelPoint = locCurve.Curve.Evaluate(0.5, true);
                                     }
-                                    
-                                    if (leaderEndModelPoint != null)
+                                }
+                                
+                                if (leaderEndModelPoint != null)
+                                {
+                                    data.LeaderEndModel = new Coordinates3D
                                     {
-                                        data.LeaderEndModel = new Coordinates3D
-                                        {
-                                            X = leaderEndModelPoint.X,
-                                            Y = leaderEndModelPoint.Y,
-                                            Z = leaderEndModelPoint.Z
-                                        };
-                                    }
+                                        X = leaderEndModelPoint.X,
+                                        Y = leaderEndModelPoint.Y,
+                                        Z = leaderEndModelPoint.Z
+                                    };
                                 }
                             }
-                            else // Free end - leader end is same as head
+                            
+                            // If still no leader end, use head position as fallback
+                            if (data.LeaderEndModel == null)
                             {
-                                leaderEndModelPoint = headPoint;
                                 data.LeaderEndModel = new Coordinates3D
                                 {
                                     X = headPoint.X,
                                     Y = headPoint.Y,
                                     Z = headPoint.Z
                                 };
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Using head as leader end fallback");
                             }
                             
                             // Convert leader end to view coordinates
-                            if (data.LeaderEndModel != null)
-                            {
-                                data.LeaderEndView = ConvertToViewCoordinates(data.LeaderEndModel);
-                                // Legacy compatibility
-                                data.LeaderEnd = new Coordinates2D 
-                                { 
-                                    X = data.LeaderEndView.X, 
-                                    Y = data.LeaderEndView.Y 
-                                };
-                            }
+                            data.LeaderEndView = ConvertToViewCoordinates(data.LeaderEndModel);
+                            data.LeaderEnd = new Coordinates2D 
+                            { 
+                                X = data.LeaderEndView.X, 
+                                Y = data.LeaderEndView.Y 
+                            };
                             
-                            // Try to get elbow position (break point)
-                            try
+                            // Get elbow position (break point) - works for both Free and Attached leaders
+                            if (elemRef != null)
                             {
-                                Reference elemRef = null;
-                                if (taggedElem is MEPCurve mepCurve2)
-                                {
-                                    LocationCurve locCurve = mepCurve2.Location as LocationCurve;
-                                    if (locCurve != null && locCurve.Curve != null)
-                                    {
-                                        elemRef = locCurve.Curve.Reference;
-                                    }
-                                }
-                                else
-                                {
-                                    elemRef = new Reference(taggedElem);
-                                }
-                                
-                                if (elemRef != null)
+                                try
                                 {
                                     XYZ elbowPoint = indTag.GetLeaderElbow(elemRef);
                                     if (elbowPoint != null)
@@ -578,7 +582,6 @@ namespace Annotatix.Module.Core
                                             Z = elbowPoint.Z
                                         };
                                         data.ElbowViewPosition = ConvertToViewCoordinates(data.ElbowModelPosition);
-                                        // Legacy compatibility
                                         data.ElbowPosition = new Coordinates2D 
                                         { 
                                             X = data.ElbowViewPosition.X, 
@@ -588,10 +591,10 @@ namespace Annotatix.Module.Core
                                         DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Elbow model: ({elbowPoint.X:F2}, {elbowPoint.Y:F2}, {elbowPoint.Z:F2})");
                                     }
                                 }
-                            }
-                            catch (Exception elbowEx)
-                            {
-                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get elbow: {elbowEx.Message}");
+                                catch (Exception elbowEx)
+                                {
+                                    DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get elbow: {elbowEx.Message}");
+                                }
                             }
                         }
                     }
@@ -603,11 +606,27 @@ namespace Annotatix.Module.Core
                 {
                     data.FamilyName = "SpotDimension";
                     data.TypeName = spotDim.SpotDimensionType?.Name ?? "SpotDimension";
-                                                    
-                    // Get the location point
+                    
+                    // Get the location point (this is where the elevation mark is placed)
                     if (spotDim.Location is LocationPoint locPoint)
                     {
-                        data.HeadPosition = new Coordinates2D { X = locPoint.Point.X, Y = locPoint.Point.Y };
+                        // Save full 3D model coordinates
+                        data.HeadModelPosition = new Coordinates3D
+                        {
+                            X = locPoint.Point.X,
+                            Y = locPoint.Point.Y,
+                            Z = locPoint.Point.Z
+                        };
+                        
+                        // Convert to view coordinates
+                        data.HeadViewPosition = ConvertToViewCoordinates(data.HeadModelPosition);
+                        
+                        // Legacy compatibility
+                        data.HeadPosition = new Coordinates2D 
+                        { 
+                            X = data.HeadViewPosition.X, 
+                            Y = data.HeadViewPosition.Y 
+                        };
                     }
                                                     
                     // Get elevation value
@@ -615,11 +634,52 @@ namespace Annotatix.Module.Core
                     {
                         var spotDimType = spotDim.SpotDimensionType;
                         data.Orientation = "Elevation"; // Mark as elevation
+                        
+                        // Get the elevation value from SpotDimension
+                        // SpotDimension.Value gives the elevation value
+                        try
+                        {
+                            // The elevation is stored in the Value property
+                            double elevationValue = spotDim.Value;
+                            // Convert from feet to meters (or keep in project units)
+                            data.TagText = $"{elevationValue:F3}"; // Store elevation value
+                        }
+                        catch
+                        {
+                            data.TagText = spotDim.TagText ?? "";
+                        }
                                                         
-                        // Store elevation value in TagText
+                        // Store leader info
                         if (spotDim.HasLeader)
                         {
                             data.HasLeader = true;
+                            
+                            // Try to get leader end position
+                            try
+                            {
+                                var refs = spotDim.References;
+                                if (refs != null && refs.Size > 0)
+                                {
+                                    var firstRef = refs.get_Item(0);
+                                    if (firstRef != null)
+                                    {
+                                        // Leader end is where the arrow points to
+                                        data.LeaderEndModel = new Coordinates3D
+                                        {
+                                            X = firstRef.GlobalPoint.X,
+                                            Y = firstRef.GlobalPoint.Y,
+                                            Z = firstRef.GlobalPoint.Z
+                                        };
+                                        data.LeaderEndView = ConvertToViewCoordinates(data.LeaderEndModel);
+                                        data.LeaderEnd = new Coordinates2D 
+                                        { 
+                                            X = data.LeaderEndView.X, 
+                                            Y = data.LeaderEndView.Y 
+                                        };
+                                    }
+                                }
+                            }
+                            catch { }
                         }
                                                         
                         // Try to get the reference element
@@ -627,10 +687,10 @@ namespace Annotatix.Module.Core
                         try
                         {
                             // SpotDimension has References property
-                            var refs = spotDim.References;
-                            if (refs != null && refs.Size > 0)
+                            var refs2 = spotDim.References;
+                            if (refs2 != null && refs2.Size > 0)
                             {
-                                var firstRef = refs.get_Item(0);
+                                var firstRef = refs2.get_Item(0);
                                 if (firstRef != null)
                                 {
                                     refElemId = firstRef.ElementId;
@@ -641,7 +701,7 @@ namespace Annotatix.Module.Core
                         }
                         catch { }
                                                         
-                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension: Type={data.TypeName}, HasLeader={data.HasLeader}, RefElement={refElemId}");
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension: Type={data.TypeName}, HasLeader={data.HasLeader}, RefElement={refElemId}, HeadModel=({data.HeadModelPosition?.X:F2}, {data.HeadModelPosition?.Y:F2}, {data.HeadModelPosition?.Z:F2})");
                     }
                     catch (Exception spotEx)
                     {
