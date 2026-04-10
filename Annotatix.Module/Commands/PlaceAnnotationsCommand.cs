@@ -291,25 +291,55 @@ namespace Annotatix.Module.Commands
 
                 if (newTag != null)
                 {
-                    // Set leader end condition FIRST (before setting head position)
-                    // This ensures the leader type is correct
-                    if (!string.IsNullOrEmpty(annotationData.LeaderType))
+                    // Get the ACTUAL reference that the tag uses
+                    // This is critical for SetLeaderEnd and SetLeaderElbow
+                    var taggedRefs = newTag.GetTaggedReferences();
+                    Reference tagRef = (taggedRefs != null && taggedRefs.Length > 0) ? taggedRefs[0] : elementRef;
+                    
+                    // Set leader end condition FIRST (before setting positions)
+                    bool isFreeLeader = annotationData.LeaderType?.Equals("Free", StringComparison.OrdinalIgnoreCase) == true;
+                    
+                    if (isFreeLeader)
                     {
-                        if (annotationData.LeaderType.Equals("Free", StringComparison.OrdinalIgnoreCase))
-                        {
-                            newTag.LeaderEndCondition = LeaderEndCondition.Free;
-                        }
-                        else if (annotationData.LeaderType.Equals("Attached", StringComparison.OrdinalIgnoreCase))
-                        {
-                            newTag.LeaderEndCondition = LeaderEndCondition.Attached;
-                        }
+                        newTag.LeaderEndCondition = LeaderEndCondition.Free;
+                    }
+                    else if (annotationData.LeaderType?.Equals("Attached", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        newTag.LeaderEndCondition = LeaderEndCondition.Attached;
                     }
                                     
                     // Set tag head position after leader condition
                     newTag.TagHeadPosition = tagHeadPosition;
+                    
+                    // For Free leaders, set the leader end position (where the arrow points)
+                    // This is the KEY to placing annotation at correct location, not on connector
+                    if (isFreeLeader && tagRef != null)
+                    {
+                        try
+                        {
+                            XYZ leaderEndPosition;
+                            
+                            // Use LeaderEndModel if recorded
+                            if (annotationData.LeaderEndModel != null && annotationData.LeaderEndModel.X != 0)
+                            {
+                                leaderEndPosition = new XYZ(
+                                    annotationData.LeaderEndModel.X,
+                                    annotationData.LeaderEndModel.Y,
+                                    annotationData.LeaderEndModel.Z
+                                );
+                                
+                                newTag.SetLeaderEnd(tagRef, leaderEndPosition);
+                                DebugLogger.Log($"[ANNOTATIX-PLACE] Set leader end position: ({leaderEndPosition.X:F2}, {leaderEndPosition.Y:F2}, {leaderEndPosition.Z:F2})");
+                            }
+                        }
+                        catch (Exception leaderEndEx)
+                        {
+                            DebugLogger.Log($"[ANNOTATIX-PLACE] Could not set leader end: {leaderEndEx.Message}");
+                        }
+                    }
                                     
                     // Set elbow position if recorded
-                    if (annotationData.HasElbow)
+                    if (annotationData.HasElbow && tagRef != null)
                     {
                         try
                         {
@@ -334,7 +364,7 @@ namespace Annotatix.Module.Commands
                                 );
                             }
                             
-                            newTag.SetLeaderElbow(elementRef, elbowPosition);
+                            newTag.SetLeaderElbow(tagRef, elbowPosition);
                             DebugLogger.Log($"[ANNOTATIX-PLACE] Set elbow position: ({elbowPosition.X:F2}, {elbowPosition.Y:F2}, {elbowPosition.Z:F2})");
                         }
                         catch (Exception elbowEx)

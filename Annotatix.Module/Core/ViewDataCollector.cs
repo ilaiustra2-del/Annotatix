@@ -462,25 +462,37 @@ namespace Annotatix.Module.Core
                             XYZ leaderEndModelPoint = null;
                             Reference elemRef = null;
                             
-                            // Get the reference for the tagged element (needed for GetLeaderEnd and GetLeaderElbow)
-                            try
+                            // CRITICAL: Get the ACTUAL reference that the tag uses
+                            // GetTaggedReferences returns the references the tag is attached to
+                            var taggedRefs = indTag.GetTaggedReferences();
+                            if (taggedRefs != null && taggedRefs.Length > 0)
                             {
-                                if (taggedElem is MEPCurve mepCurve)
+                                elemRef = taggedRefs[0]; // Use the first tagged reference
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Got tagged reference: {elemRef.ElementId}, ElementReferenceType={elemRef.ElementReferenceType}");
+                            }
+                            
+                            // Fallback: try to get reference from element
+                            if (elemRef == null)
+                            {
+                                try
                                 {
-                                    LocationCurve lc = mepCurve.Location as LocationCurve;
-                                    if (lc != null && lc.Curve != null)
+                                    if (taggedElem is MEPCurve mepCurve)
                                     {
-                                        elemRef = lc.Curve.Reference;
+                                        LocationCurve lc = mepCurve.Location as LocationCurve;
+                                        if (lc != null && lc.Curve != null)
+                                        {
+                                            elemRef = lc.Curve.Reference;
+                                        }
+                                    }
+                                    if (elemRef == null)
+                                    {
+                                        elemRef = new Reference(taggedElem);
                                     }
                                 }
-                                if (elemRef == null)
+                                catch (Exception refEx)
                                 {
-                                    elemRef = new Reference(taggedElem);
+                                    DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get element reference: {refEx.Message}");
                                 }
-                            }
-                            catch (Exception refEx)
-                            {
-                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get element reference: {refEx.Message}");
                             }
                             
                             // Get leader end position
@@ -567,28 +579,35 @@ namespace Annotatix.Module.Core
                                 Y = data.LeaderEndView.Y 
                             };
                             
-                            // Get elbow position (break point) - works for both Free and Attached leaders
+                            // Get elbow position (break point)
                             if (elemRef != null)
                             {
                                 try
                                 {
-                                    XYZ elbowPoint = indTag.GetLeaderElbow(elemRef);
-                                    if (elbowPoint != null)
+                                    // First check if there IS an elbow using HasLeaderElbow
+                                    bool hasElbow = indTag.HasLeaderElbow(elemRef);
+                                    DebugLogger.Log($"[ANNOTATIX-COLLECTOR] HasLeaderElbow check: {hasElbow}");
+                                    
+                                    if (hasElbow)
                                     {
-                                        data.ElbowModelPosition = new Coordinates3D
+                                        XYZ elbowPoint = indTag.GetLeaderElbow(elemRef);
+                                        if (elbowPoint != null)
                                         {
-                                            X = elbowPoint.X,
-                                            Y = elbowPoint.Y,
-                                            Z = elbowPoint.Z
-                                        };
-                                        data.ElbowViewPosition = ConvertToViewCoordinates(data.ElbowModelPosition);
-                                        data.ElbowPosition = new Coordinates2D 
-                                        { 
-                                            X = data.ElbowViewPosition.X, 
-                                            Y = data.ElbowViewPosition.Y 
-                                        };
-                                        data.HasElbow = true;
-                                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Elbow model: ({elbowPoint.X:F2}, {elbowPoint.Y:F2}, {elbowPoint.Z:F2})");
+                                            data.ElbowModelPosition = new Coordinates3D
+                                            {
+                                                X = elbowPoint.X,
+                                                Y = elbowPoint.Y,
+                                                Z = elbowPoint.Z
+                                            };
+                                            data.ElbowViewPosition = ConvertToViewCoordinates(data.ElbowModelPosition);
+                                            data.ElbowPosition = new Coordinates2D 
+                                            { 
+                                                X = data.ElbowViewPosition.X, 
+                                                Y = data.ElbowViewPosition.Y 
+                                            };
+                                            data.HasElbow = true;
+                                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Elbow model: ({elbowPoint.X:F2}, {elbowPoint.Y:F2}, {elbowPoint.Z:F2})");
+                                        }
                                     }
                                 }
                                 catch (Exception elbowEx)
