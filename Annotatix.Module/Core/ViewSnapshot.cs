@@ -95,6 +95,15 @@ namespace Annotatix.Module.Core
         // Elbow position in view coordinates
         public Coordinates2D ElbowViewPosition { get; set; }
         
+        // SpotDimension-specific: Origin (arrow position) in model coordinates
+        public Coordinates3D SpotOriginModel { get; set; }
+        
+        // SpotDimension-specific: Origin (arrow position) in view coordinates
+        public Coordinates2D SpotOriginView { get; set; }
+                
+        // SpotDimension-specific: LeaderShoulderPosition (bend point) in model coordinates
+        public Coordinates3D LeaderShoulderModel { get; set; }
+        
         // Legacy properties for backward compatibility
         public Coordinates2D HeadPosition { get; set; }
         public Coordinates2D LeaderEnd { get; set; }
@@ -131,6 +140,10 @@ namespace Annotatix.Module.Core
             LeaderEndView = new Coordinates2D();
             ElbowModelPosition = new Coordinates3D();
             ElbowViewPosition = new Coordinates2D();
+            // SpotDimension-specific
+            SpotOriginModel = new Coordinates3D();
+            SpotOriginView = new Coordinates2D();
+            LeaderShoulderModel = new Coordinates3D();
             // Legacy
             HeadPosition = new Coordinates2D();
             LeaderEnd = new Coordinates2D();

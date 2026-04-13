@@ -719,6 +719,128 @@ namespace Annotatix.Module.Core
                     // Debug: log what SpotDimension properties are available
                     DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension analysis: HasLeader={spotDim.HasLeader}, View={spotDim.View?.Name}");
                     
+                    // Log ALL SpotDimension properties for analysis
+                    try
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] === SPOTDIMENSION FULL PROPERTY DUMP ===");
+                        
+                        // Location property
+                        if (spotDim.Location is LocationPoint locPt)
+                        {
+                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   Location (LocationPoint): ({locPt.Point.X:F4}, {locPt.Point.Y:F4}, {locPt.Point.Z:F4})");
+                        }
+                        else if (spotDim.Location != null)
+                        {
+                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   Location type: {spotDim.Location.GetType().Name}");
+                        }
+                        else
+                        {
+                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   Location: null");
+                        }
+                        
+                        // Origin property
+                        try
+                        {
+                            XYZ originPt = spotDim.Origin;
+                            if (originPt != null)
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   Origin: ({originPt.X:F4}, {originPt.Y:F4}, {originPt.Z:F4})");
+                            else
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   Origin: null");
+                        }
+                        catch (Exception ex) { DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   Origin error: {ex.Message}"); }
+                        
+                        // LeaderEndPosition
+                        try
+                        {
+                            XYZ leaderEnd = spotDim.LeaderEndPosition;
+                            if (leaderEnd != null)
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   LeaderEndPosition: ({leaderEnd.X:F4}, {leaderEnd.Y:F4}, {leaderEnd.Z:F4})");
+                            else
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   LeaderEndPosition: null");
+                        }
+                        catch (Exception ex) { DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   LeaderEndPosition error: {ex.Message}"); }
+                        
+                        // LeaderShoulderPosition
+                        try
+                        {
+                            if (spotDim.LeaderHasShoulder)
+                            {
+                                XYZ shoulder = spotDim.LeaderShoulderPosition;
+                                if (shoulder != null)
+                                {
+                                    DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   LeaderShoulderPosition: ({shoulder.X:F4}, {shoulder.Y:F4}, {shoulder.Z:F4})");
+                                    // Save LeaderShoulderPosition for proper placement
+                                    data.LeaderShoulderModel = new Coordinates3D
+                                    {
+                                        X = shoulder.X,
+                                        Y = shoulder.Y,
+                                        Z = shoulder.Z
+                                    };
+                                }
+                            }
+                            else
+                            {
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   LeaderHasShoulder: False");
+                            }
+                        }
+                        catch (Exception ex) { DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   LeaderShoulderPosition error: {ex.Message}"); }
+                        
+                        // TextPosition
+                        try
+                        {
+                            XYZ textPos = spotDim.TextPosition;
+                            if (textPos != null)
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   TextPosition: ({textPos.X:F4}, {textPos.Y:F4}, {textPos.Z:F4})");
+                            else
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   TextPosition: null");
+                        }
+                        catch (Exception ex) { DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   TextPosition error: {ex.Message}"); }
+                        
+                        // Curve (dimension line)
+                        try
+                        {
+                            Curve dimCurve = spotDim.Curve;
+                            if (dimCurve != null)
+                            {
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   Curve: Start=({dimCurve.GetEndPoint(0).X:F4}, {dimCurve.GetEndPoint(0).Y:F4}, {dimCurve.GetEndPoint(0).Z:F4}), End=({dimCurve.GetEndPoint(1).X:F4}, {dimCurve.GetEndPoint(1).Y:F4}, {dimCurve.GetEndPoint(1).Z:F4})");
+                            }
+                        }
+                        catch (Exception ex) { DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   Curve error: {ex.Message}"); }
+                        
+                        // Value
+                        try
+                        {
+                            double? val = spotDim.Value;
+                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   Value: {val}");
+                        }
+                        catch (Exception ex) { DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   Value error: {ex.Message}"); }
+                        
+                        // DimensionShape
+                        try
+                        {
+                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   DimensionShape: {spotDim.DimensionShape}");
+                        }
+                        catch { }
+                        
+                        // BoundingBox
+                        try
+                        {
+                            var bbox = spotDim.get_BoundingBox(spotDim.View);
+                            if (bbox != null)
+                            {
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   BoundingBox Min: ({bbox.Min.X:F4}, {bbox.Min.Y:F4}, {bbox.Min.Z:F4})");
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   BoundingBox Max: ({bbox.Max.X:F4}, {bbox.Max.Y:F4}, {bbox.Max.Z:F4})");
+                            }
+                        }
+                        catch { }
+                        
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] === END PROPERTY DUMP ===");
+                    }
+                    catch (Exception dumpEx)
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Property dump error: {dumpEx.Message}");
+                    }
+                    
                     // Try to get position from References first (most reliable for SpotDimension)
                     try
                     {
@@ -787,12 +909,122 @@ namespace Annotatix.Module.Core
                         DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get SpotDimension references: {refEx.Message}");
                     }
                     
-                    // Get Head position from Location or fallback
-                    if (spotDim.Location is LocationPoint locPoint && locPoint.Point != null)
+                    // Get Head position from TextPosition (the actual text location for SpotDimension)
+                    // TextPosition is the most accurate source for where the text appears
+                    try
+                    {
+                        XYZ textPos = spotDim.TextPosition;
+                        if (textPos != null)
+                        {
+                            headPoint = textPos;
+                            data.HeadModelPosition = new Coordinates3D
+                            {
+                                X = textPos.X,
+                                Y = textPos.Y,
+                                Z = textPos.Z
+                            };
+                            data.HeadViewPosition = ConvertToViewCoordinates(data.HeadModelPosition);
+                            data.HeadPosition = new Coordinates2D
+                            {
+                                X = data.HeadViewPosition.X,
+                                Y = data.HeadViewPosition.Y
+                            };
+                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension TextPosition (text): ({textPos.X:F2}, {textPos.Y:F2}, {textPos.Z:F2})");
+                        }
+                    }
+                    catch (Exception textPosEx)
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get TextPosition: {textPosEx.Message}");
+                    }
+                    
+                    // Fallback: Get Head position from Location if TextPosition was not available
+                    if (headPoint == null && spotDim.Location is LocationPoint locPoint && locPoint.Point != null)
                     {
                         headPoint = locPoint.Point;
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension Location (text fallback): ({headPoint.X:F2}, {headPoint.Y:F2}, {headPoint.Z:F2})");
                     }
-                    else
+                    
+                    // Get Origin (arrow position) - this is where the dimension line starts
+                    // The arrow position for SpotDimension is crucial for proper placement
+                    try
+                    {
+                        XYZ origin = spotDim.Origin;
+                        if (origin != null)
+                        {
+                            // Origin is the arrow position for SpotDimension
+                            data.SpotOriginModel = new Coordinates3D
+                            {
+                                X = origin.X,
+                                Y = origin.Y,
+                                Z = origin.Z
+                            };
+                            data.SpotOriginView = ConvertToViewCoordinates(data.SpotOriginModel);
+                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension Origin (arrow): ({origin.X:F2}, {origin.Y:F2}, {origin.Z:F2})");
+                        }
+                    }
+                    catch (Exception originEx)
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get SpotDimension Origin: {originEx.Message}");
+                    }
+                                        
+                    // Get LeaderEndPosition (attachment point to element)
+                    // This is the point where the arrow attaches to the element (critical for placement)
+                    try
+                    {
+                        XYZ leaderEndPos = spotDim.LeaderEndPosition;
+                        if (leaderEndPos != null)
+                        {
+                            // LeaderEndPosition is where it attaches to the element
+                            // Override LeaderEndModel with this more accurate value
+                            data.LeaderEndModel = new Coordinates3D
+                            {
+                                X = leaderEndPos.X,
+                                Y = leaderEndPos.Y,
+                                Z = leaderEndPos.Z
+                            };
+                            data.LeaderEndView = ConvertToViewCoordinates(data.LeaderEndModel);
+                            data.LeaderEnd = new Coordinates2D 
+                            { 
+                                X = data.LeaderEndView.X, 
+                                Y = data.LeaderEndView.Y 
+                            };
+                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension LeaderEndPosition (attachment): ({leaderEndPos.X:F2}, {leaderEndPos.Y:F2}, {leaderEndPos.Z:F2})");
+                                                
+                            // If SpotOriginModel is still empty, use LeaderEndPosition as origin (arrow position)
+                            if (data.SpotOriginModel.X == 0 && data.SpotOriginModel.Y == 0 && data.SpotOriginModel.Z == 0)
+                            {
+                                data.SpotOriginModel = new Coordinates3D
+                                {
+                                    X = leaderEndPos.X,
+                                    Y = leaderEndPos.Y,
+                                    Z = leaderEndPos.Z
+                                };
+                                data.SpotOriginView = ConvertToViewCoordinates(data.SpotOriginModel);
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension Origin (from LeaderEndPosition): ({leaderEndPos.X:F2}, {leaderEndPos.Y:F2}, {leaderEndPos.Z:F2})");
+                            }
+                        }
+                    }
+                    catch (Exception leaderEndEx)
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not get SpotDimension LeaderEndPosition: {leaderEndEx.Message}");
+                    }
+                                        
+                    // If SpotOriginModel is still empty, use LeaderEndModel as fallback for arrow position
+                    if (data.SpotOriginModel.X == 0 && data.SpotOriginModel.Y == 0 && data.SpotOriginModel.Z == 0 
+                        && leaderEndPoint != null)
+                    {
+                        data.SpotOriginModel = new Coordinates3D
+                        {
+                            X = leaderEndPoint.X,
+                            Y = leaderEndPoint.Y,
+                            Z = leaderEndPoint.Z
+                        };
+                        data.SpotOriginView = ConvertToViewCoordinates(data.SpotOriginModel);
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension Origin (fallback from leaderEndPoint): ({leaderEndPoint.X:F2}, {leaderEndPoint.Y:F2}, {leaderEndPoint.Z:F2})");
+                    }
+                    
+                    // Fallback for head position if Location was null
+                    if (headPoint == null)
                     {
                         // Fallback: use the leader end point as head (common for elevation marks)
                         // Or get from the spot dimension's text position
@@ -944,7 +1176,10 @@ namespace Annotatix.Module.Core
                         }
                         catch { }
                                                         
-                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension: Type={data.TypeName}, HasLeader={data.HasLeader}, RefElement={refElemId}, HeadModel=({data.HeadModelPosition?.X:F2}, {data.HeadModelPosition?.Y:F2}, {data.HeadModelPosition?.Z:F2})");
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] SpotDimension: Type={data.TypeName}, HasLeader={data.HasLeader}, RefElement={refElemId}");
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   SpotOriginModel (arrow): ({data.SpotOriginModel?.X:F2}, {data.SpotOriginModel?.Y:F2}, {data.SpotOriginModel?.Z:F2})");
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   HeadModelPosition (text): ({data.HeadModelPosition?.X:F2}, {data.HeadModelPosition?.Y:F2}, {data.HeadModelPosition?.Z:F2})");
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR]   LeaderEndModel (attachment): ({data.LeaderEndModel?.X:F2}, {data.LeaderEndModel?.Y:F2}, {data.LeaderEndModel?.Z:F2})");
                     }
                     catch (Exception spotEx)
                     {

@@ -472,28 +472,88 @@ namespace Annotatix.Module.Commands
         /// </summary>
         private Reference GetReferenceForElement(Element element, View view)
         {
+            return GetReferenceForElement(element, view, false);
+        }
+        
+        /// <summary>
+        /// Get a reference for an element for tagging or SpotDimension
+        /// </summary>
+        /// <param name="element">The element to reference</param>
+        /// <param name="view">The view context</param>
+        /// <param name="forSpotDimension">If true, prefer face/surface references over curve references</param>
+        private Reference GetReferenceForElement(Element element, View view, bool forSpotDimension)
+        {
             try
             {
-                DebugLogger.Log($"[ANNOTATIX-PLACE] Getting reference for element {element.Id}, category: {element.Category?.Name}");
+                DebugLogger.Log($"[ANNOTATIX-PLACE] Getting reference for element {element.Id}, category: {element.Category?.Name}, forSpotDimension: {forSpotDimension}");
 
-                // For MEPCurves (pipes, ducts, cable trays), we need special handling
+                // For MEPCurves (pipes, ducts, cable trays), get reference from geometry
+                // IMPORTANT: LocationCurve.Curve.Reference returns null!
+                // We need to get the Curve/Face from element geometry with ComputeReferences = true
                 if (element is MEPCurve mepCurve)
                 {
-                    LocationCurve locationCurve = mepCurve.Location as LocationCurve;
-                    if (locationCurve != null && locationCurve.Curve != null)
+                    // Get geometry with compute references enabled
+                    Options opt = new Options();
+                    opt.ComputeReferences = true;
+                    opt.IncludeNonVisibleObjects = false;
+                    opt.View = view;
+                    
+                    GeometryElement geomElem = element.get_Geometry(opt);
+                    if (geomElem != null)
                     {
-                        // Try to get curve reference first
-                        var curveRef = locationCurve.Curve.Reference;
-                        if (curveRef != null)
+                        Reference faceRef = null;
+                        Reference curveRef = null;
+                        
+                        foreach (GeometryObject geoObj in geomElem)
                         {
-                            DebugLogger.Log($"[ANNOTATIX-PLACE] Got curve reference for MEPCurve {element.Id}");
+                            // Check for solid geometry (surface references) - PREFERRED for SpotDimension
+                            Solid solid = geoObj as Solid;
+                            if (solid != null && solid.Faces.Size > 0)
+                            {
+                                // Find the best face - use the one closest to the pipe surface
+                                // For SpotDimension, we need a face reference so LeaderEndPosition can be set
+                                foreach (Face face in solid.Faces)
+                                {
+                                    if (face != null && face.Reference != null)
+                                    {
+                                        faceRef = face.Reference;
+                                        DebugLogger.Log($"[ANNOTATIX-PLACE] Got face reference from solid for MEPCurve {element.Id}");
+                                        break;
+                                    }
+                                }
+                                if (faceRef != null) break;
+                            }
+                            
+                            // Also look for Curve in geometry (centerline for pipes)
+                            Curve cv = geoObj as Curve;
+                            if (cv != null && cv.Reference != null)
+                            {
+                                curveRef = cv.Reference;
+                                DebugLogger.Log($"[ANNOTATIX-PLACE] Got geometry curve reference for MEPCurve {element.Id}");
+                            }
+                        }
+                        
+                        // For SpotDimension, prefer FACE reference (allows LeaderEndPosition to work)
+                        // For regular tags, curve reference is fine
+                        if (forSpotDimension && faceRef != null)
+                        {
+                            DebugLogger.Log($"[ANNOTATIX-PLACE] Using FACE reference for SpotDimension on MEPCurve {element.Id}");
+                            return faceRef;
+                        }
+                        else if (curveRef != null)
+                        {
+                            DebugLogger.Log($"[ANNOTATIX-PLACE] Using curve reference for MEPCurve {element.Id}");
                             return curveRef;
+                        }
+                        else if (faceRef != null)
+                        {
+                            DebugLogger.Log($"[ANNOTATIX-PLACE] Using face reference fallback for MEPCurve {element.Id}");
+                            return faceRef;
                         }
                     }
                     
                     // Fallback: Create reference directly from element
-                    // For 3D views, we can use the element itself as reference
-                    DebugLogger.Log($"[ANNOTATIX-PLACE] Using element reference for MEPCurve {element.Id}");
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] Using element reference fallback for MEPCurve {element.Id}");
                     return new Reference(element);
                 }
 
@@ -584,73 +644,158 @@ namespace Annotatix.Module.Commands
                 }
                 
                 // Get reference for the element
-                Reference elemRef = GetReferenceForElement(taggedElement, view);
+                // Use Curve Reference for SpotDimension - Face Reference requires origin ON the face surface
+                Reference elemRef = GetReferenceForElement(taggedElement, view, false);
                 if (elemRef == null)
                 {
                     DebugLogger.Log($"[ANNOTATIX-PLACE] Could not get reference for SpotDimension element");
                     return false;
                 }
                 
-                // Get position points
-                XYZ headPosition; // End point - where the text appears
-                XYZ origin;       // Origin - point on the reference to evaluate
-                XYZ bend;         // Bend point - elbow of the leader
+                // For SpotDimension (elevation marks), we need to track 3 control points:
+                // 1. Origin (arrow position) - where the arrow points on the element
+                // 2. End (text position) - where the text/annotation appears
+                // 3. Bend (elbow) - the bend point on the leader line
+                // 
+                // IMPORTANT: In Revit API, NewSpotElevation parameters are:
+                // - origin: the ARROW position (where dimension line starts)
+                // - bend: elbow point on leader
+                // - end: text position
+                // - refPt: reference point for finding point on element
+                //
+                // SpotOriginModel = arrow position (origin parameter)
+                // LeaderEndModel = attachment point to element (use as refPt or for finding origin)
+                // HeadModelPosition = text position (end parameter)
+                                                
+                XYZ origin;  // Arrow position (where dimension line starts)
+                XYZ end;     // Text position (where annotation appears)
+                XYZ bend;    // Elbow point on leader
+                XYZ refPt;   // Reference point for finding point on element
+                                
+                // CRITICAL: For SpotDimension on MEPCurve (pipes):
+                // - 'origin' is the MEASUREMENT POINT (arrow position) = SpotOriginModel
+                // - 'LeaderEndPosition' is where leader attaches = usually on pipe surface
+                // 
+                // The Reference should point to the pipe SURFACE (not centerline) for LeaderEndPosition to work!
+                // When Reference is to centerline curve, LeaderEndPosition cannot be freely set.
                 
-                // Use model coordinates if available
+                // CRITICAL: For SpotDimension with Curve Reference:
+                // - 'origin' parameter is projected onto the element curve
+                // - LeaderEndPosition is determined by this projection
+                // - LeaderShoulderPosition controls the leader geometry (bend point)
+                // - TextPosition controls where text appears
+                
+                // STRATEGY: 
+                // 1. Pass SpotOriginModel as origin (arrow/measurement point)
+                // 2. After creation, set LeaderShoulderPosition = Origin
+                // 3. Then set TextPosition to desired location
+                
+                // Step 1: Determine origin (arrow point) - use SpotOriginModel for correct measurement
+                if (annotationData.SpotOriginModel != null && annotationData.SpotOriginModel.X != 0)
+                {
+                    origin = new XYZ(
+                        annotationData.SpotOriginModel.X,
+                        annotationData.SpotOriginModel.Y,
+                        annotationData.SpotOriginModel.Z
+                    );
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] SpotDimension using SpotOriginModel as origin (arrow): ({origin.X:F2}, {origin.Y:F2}, {origin.Z:F2})");
+                }
+                else if (annotationData.LeaderEndModel != null && annotationData.LeaderEndModel.X != 0)
+                {
+                    origin = new XYZ(
+                        annotationData.LeaderEndModel.X,
+                        annotationData.LeaderEndModel.Y,
+                        annotationData.LeaderEndModel.Z
+                    );
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] SpotDimension using LeaderEndModel as origin fallback: ({origin.X:F2}, {origin.Y:F2}, {origin.Z:F2})");
+                }
+                else
+                {
+                    // Fallback: project onto curve
+                    if (taggedElement is MEPCurve mepCurveElement && mepCurveElement.Location is LocationCurve lc)
+                    {
+                        origin = lc.Curve.Evaluate(0.5, true);
+                    }
+                    else if (taggedElement.Location is LocationPoint lp)
+                    {
+                        origin = lp.Point;
+                    }
+                    else
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-PLACE] Cannot determine SpotDimension origin");
+                        return false;
+                    }
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] SpotDimension using fallback origin: ({origin.X:F2}, {origin.Y:F2}, {origin.Z:F2})");
+                }
+                                
+                // Step 2: Determine reference point (refPt)
+                // Use LeaderEndModel as refPt - this helps Revit find the correct geometry
+                if (annotationData.LeaderEndModel != null && annotationData.LeaderEndModel.X != 0)
+                {
+                    refPt = new XYZ(
+                        annotationData.LeaderEndModel.X,
+                        annotationData.LeaderEndModel.Y,
+                        annotationData.LeaderEndModel.Z
+                    );
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] Using LeaderEndModel as refPt: ({refPt.X:F2}, {refPt.Y:F2}, {refPt.Z:F2})");
+                }
+                else
+                {
+                    refPt = origin;
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] Using origin as refPt fallback: ({refPt.X:F2}, {refPt.Y:F2}, {refPt.Z:F2})");
+                }
+                                
+                // Store for later use
+                XYZ pointOnElement = origin;
+                
+                // NOTE: Do NOT overwrite refPt here - it should remain as LeaderEndModel
+                // refPt tells Revit WHERE on the element to attach the leader
+                                
+                // Determine text position (end) - where the annotation text appears
+                // Priority: HeadModelPosition > offset from origin
                 if (annotationData.HeadModelPosition != null && annotationData.HeadModelPosition.X != 0)
                 {
-                    headPosition = new XYZ(
+                    end = new XYZ(
                         annotationData.HeadModelPosition.X,
                         annotationData.HeadModelPosition.Y,
                         annotationData.HeadModelPosition.Z
                     );
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] SpotDimension using HeadModelPosition: ({end.X:F2}, {end.Y:F2}, {end.Z:F2})");
                 }
                 else
                 {
-                    // Fallback - use element location
-                    if (taggedElement.Location is LocationPoint lp)
-                    {
-                        headPosition = lp.Point;
-                    }
-                    else if (taggedElement.Location is LocationCurve lc)
-                    {
-                        headPosition = lc.Curve.Evaluate(0.5, true);
-                    }
-                    else
-                    {
-                        DebugLogger.Log($"[ANNOTATIX-PLACE] Cannot determine SpotDimension position");
-                        return false;
-                    }
+                    // Fallback - offset from origin
+                    end = origin + new XYZ(0.5, 0.5, 0);
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] SpotDimension using offset fallback: ({end.X:F2}, {end.Y:F2}, {end.Z:F2})");
                 }
-                
-                // For SpotDimension:
-                // - origin: the point on the reference where elevation is measured
-                // - end: where the text/annotation head appears
-                // - bend: the elbow point on the leader
-                // - refPt: same as origin for simplicity
-                
-                origin = headPosition; // Point to measure elevation
-                
-                // End point is offset from origin (where the text appears)
-                // Typically offset in the direction perpendicular to view
-                XYZ end = headPosition + new XYZ(0.5, 0.5, 0); // Small offset for visibility
-                
-                // Bend point (elbow) - if recorded
-                if (annotationData.HasElbow && annotationData.ElbowModelPosition != null)
+                                
+                // Determine bend point (elbow) - the bend on the leader line
+                // For SpotDimension without elbow (HasElbow=false), use end point as bend for straight leader
+                if (annotationData.HasElbow && annotationData.ElbowModelPosition != null 
+                    && annotationData.ElbowModelPosition.X != 0)
                 {
+                    // Has explicit elbow position
                     bend = new XYZ(
                         annotationData.ElbowModelPosition.X,
                         annotationData.ElbowModelPosition.Y,
                         annotationData.ElbowModelPosition.Z
                     );
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] SpotDimension using ElbowModelPosition: ({bend.X:F2}, {bend.Y:F2}, {bend.Z:F2})");
                 }
                 else
                 {
-                    // Default bend between origin and end
-                    bend = (origin + end) / 2.0;
+                    // No elbow - use end point as bend for straight leader line
+                    // This creates a straight line from origin to end through bend
+                    bend = end;
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] SpotDimension using straight leader (bend=end): ({bend.X:F2}, {bend.Y:F2}, {bend.Z:F2})");
                 }
                 
                 bool hasLeader = annotationData.HasLeader;
+                
+                // Store the projected point for LeaderEndPosition
+                // CRITICAL: LeaderEndPosition must be a point ON the element geometry!
+                // Revit will reject any point that is not on the referenced geometry
+                XYZ projectedLeaderEnd = pointOnElement;
                 
                 // Create the SpotDimension
                 SpotDimension spotDim = doc.Create.NewSpotElevation(
@@ -659,7 +804,7 @@ namespace Annotatix.Module.Commands
                     origin,
                     bend,
                     end,
-                    origin, // refPt same as origin
+                    refPt,
                     hasLeader
                 );
                 
@@ -667,7 +812,98 @@ namespace Annotatix.Module.Commands
                 {
                     // Set the SpotDimensionType
                     spotDim.SpotDimensionType = spotDimType;
-                    DebugLogger.Log($"[ANNOTATIX-PLACE] Created SpotDimension {spotDim.Id} at ({origin.X:F2}, {origin.Y:F2}, {origin.Z:F2})");
+                    
+                    // CRITICAL: Revit API constraints for SpotDimension with Curve Reference:
+                    // - Setting LeaderShoulderPosition affects LeaderEndPosition and TextPosition
+                    // - Setting LeaderEndPosition affects TextPosition
+                    // - Setting TextPosition may be limited by geometric constraints
+                    //
+                    // CORRECT ORDER (based on testing):
+                    // 1. Set LeaderShoulderPosition = Origin FIRST (establishes leader geometry)
+                    // 2. Then set LeaderEndPosition (attachment point - this will be preserved)
+                    // 3. Finally set TextPosition (text location)
+                    
+                    // Step 1: Set LeaderShoulderPosition to Origin FIRST
+                    // This establishes the proper leader geometry where shoulder = arrow point
+                    try
+                    {
+                        if (spotDim.LeaderHasShoulder)
+                        {
+                            spotDim.LeaderShoulderPosition = origin;
+                            DebugLogger.Log($"[ANNOTATIX-PLACE] Set LeaderShoulderPosition to origin: ({origin.X:F2}, {origin.Y:F2}, {origin.Z:F2})");
+                        }
+                    }
+                    catch (Exception shoulderEx)
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-PLACE] Could not set LeaderShoulderPosition: {shoulderEx.Message}");
+                    }
+                    
+                    // Step 2: Set LeaderEndPosition AFTER LeaderShoulderPosition
+                    // This is where the arrow attaches - should be offset from Origin
+                    try
+                    {
+                        if (annotationData.LeaderEndModel != null && annotationData.LeaderEndModel.X != 0)
+                        {
+                            XYZ leaderEndPos = new XYZ(
+                                annotationData.LeaderEndModel.X,
+                                annotationData.LeaderEndModel.Y,
+                                annotationData.LeaderEndModel.Z
+                            );
+                            spotDim.LeaderEndPosition = leaderEndPos;
+                            DebugLogger.Log($"[ANNOTATIX-PLACE] Set LeaderEndPosition to: ({leaderEndPos.X:F2}, {leaderEndPos.Y:F2}, {leaderEndPos.Z:F2})");
+                        }
+                    }
+                    catch (Exception leaderEndEx)
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-PLACE] Could not set LeaderEndPosition: {leaderEndEx.Message}");
+                    }
+                    
+                    // Step 3: Set TextPosition AFTER LeaderEndPosition and LeaderShoulderPosition
+                    // TextPosition controls where the text/annotation appears
+                    try
+                    {
+                        // Check if text position is adjustable
+                        if (spotDim.IsTextPositionAdjustable())
+                        {
+                            XYZ textPos = new XYZ(
+                                annotationData.HeadModelPosition.X,
+                                annotationData.HeadModelPosition.Y,
+                                annotationData.HeadModelPosition.Z
+                            );
+                            spotDim.TextPosition = textPos;
+                            DebugLogger.Log($"[ANNOTATIX-PLACE] Set TextPosition to: ({textPos.X:F2}, {textPos.Y:F2}, {textPos.Z:F2})");
+                        }
+                        else
+                        {
+                            DebugLogger.Log($"[ANNOTATIX-PLACE] TextPosition is not adjustable for this SpotDimension");
+                        }
+                    }
+                    catch (Exception textEx)
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-PLACE] Could not set TextPosition: {textEx.Message}");
+                    }
+                    
+                    DebugLogger.Log($"[ANNOTATIX-PLACE] Created SpotDimension {spotDim.Id}:");
+                    DebugLogger.Log($"[ANNOTATIX-PLACE]   Origin (measurement): ({origin.X:F2}, {origin.Y:F2}, {origin.Z:F2})");
+                    DebugLogger.Log($"[ANNOTATIX-PLACE]   End (text): ({end.X:F2}, {end.Y:F2}, {end.Z:F2})");
+                    DebugLogger.Log($"[ANNOTATIX-PLACE]   Bend (elbow): ({bend.X:F2}, {bend.Y:F2}, {bend.Z:F2})");
+                    DebugLogger.Log($"[ANNOTATIX-PLACE]   RefPt: ({refPt.X:F2}, {refPt.Y:F2}, {refPt.Z:F2})");
+                    
+                    // Log actual SpotDimension properties after all modifications
+                    try
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-PLACE]   Actual TextPosition: ({spotDim.TextPosition.X:F2}, {spotDim.TextPosition.Y:F2}, {spotDim.TextPosition.Z:F2})");
+                        DebugLogger.Log($"[ANNOTATIX-PLACE]   Actual LeaderEndPosition: ({spotDim.LeaderEndPosition.X:F2}, {spotDim.LeaderEndPosition.Y:F2}, {spotDim.LeaderEndPosition.Z:F2})");
+                        if (spotDim.LeaderHasShoulder)
+                        {
+                            DebugLogger.Log($"[ANNOTATIX-PLACE]   Actual LeaderShoulderPosition: ({spotDim.LeaderShoulderPosition.X:F2}, {spotDim.LeaderShoulderPosition.Y:F2}, {spotDim.LeaderShoulderPosition.Z:F2})");
+                        }
+                        DebugLogger.Log($"[ANNOTATIX-PLACE]   LeaderHasShoulder: {spotDim.LeaderHasShoulder}");
+                    }
+                    catch (Exception logEx)
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-PLACE] Could not log actual positions: {logEx.Message}");
+                    }
                     return true;
                 }
                 
