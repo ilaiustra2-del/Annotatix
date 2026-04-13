@@ -43,30 +43,34 @@ namespace Annotatix.Module.Core
                 DebugLogger.Log($"[ANNOTATIX-EXPORT] Pixel width: {width}");
 
                 // Configure export options
+                // Use SetOfViews with the view ID to export the ENTIRE view content
+                // (not just the current viewport/zoom state)
                 ImageExportOptions options = new ImageExportOptions
                 {
-                    ExportRange = ExportRange.CurrentView,
-                    FilePath = outputPath,
+                    ExportRange = ExportRange.SetOfViews,
+                    FilePath = outputDirectory,
                     ImageResolution = ImageResolution.DPI_150,
                     ZoomType = ZoomFitType.FitToPage,
                     PixelSize = width
                 };
 
+                // Set the views to export (using ElementId collection)
+                options.SetViewsAndSheets(new ElementId[] { view.Id });
+
+                DebugLogger.Log($"[ANNOTATIX-EXPORT] Using SetOfViews for view ID: {view.Id}");
+                DebugLogger.Log($"[ANNOTATIX-EXPORT] View crop box active: {view.CropBoxActive}");
+
                 // Export the view
                 doc.ExportImage(options);
 
-                // Revit appends "_View Name" to the filename, so find the actual file
+                // Revit generates file with view name when using SetOfViews
+                // File name format: "FileName - ViewName.png" or similar
                 string actualPath = FindExportedFile(outputDirectory, fileName, view.Name);
 
                 if (actualPath != null && File.Exists(actualPath))
                 {
                     DebugLogger.Log($"[ANNOTATIX-EXPORT] Successfully exported to: {actualPath}");
                     return actualPath;
-                }
-                else if (File.Exists(outputPath))
-                {
-                    DebugLogger.Log($"[ANNOTATIX-EXPORT] Successfully exported to: {outputPath}");
-                    return outputPath;
                 }
                 else
                 {
