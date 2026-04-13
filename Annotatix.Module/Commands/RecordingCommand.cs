@@ -91,6 +91,23 @@ namespace Annotatix.Module.Commands
             // Export start snapshot
             RecordingState.StartSnapshotPath = JsonExporter.Export(snapshot, RecordingState.RecordingsDirectory);
 
+            // Get session directory path (where JSON was saved)
+            string sessionDirectory = System.IO.Path.GetDirectoryName(RecordingState.StartSnapshotPath);
+
+            // Export start snapshot as PNG
+            try
+            {
+                string pngPath = ViewExporter.ExportStartSnapshot(doc, view, sessionDirectory);
+                if (!string.IsNullOrEmpty(pngPath))
+                {
+                    DebugLogger.Log($"[ANNOTATIX-CMD] Start snapshot PNG exported: {pngPath}");
+                }
+            }
+            catch (Exception pngEx)
+            {
+                DebugLogger.Log($"[ANNOTATIX-CMD] WARNING: Failed to export start PNG: {pngEx.Message}");
+            }
+
             // Update button text
             UpdateButtonText(true);
 
@@ -112,16 +129,36 @@ namespace Annotatix.Module.Commands
             // Export end snapshot
             var endPath = JsonExporter.Export(snapshot, RecordingState.RecordingsDirectory);
 
+            // Get session directory path
+            string sessionDirectory = System.IO.Path.GetDirectoryName(endPath);
+
+            // Export end snapshot as PNG
+            try
+            {
+                string pngPath = ViewExporter.ExportEndSnapshot(doc, view, sessionDirectory);
+                if (!string.IsNullOrEmpty(pngPath))
+                {
+                    DebugLogger.Log($"[ANNOTATIX-CMD] End snapshot PNG exported: {pngPath}");
+                }
+            }
+            catch (Exception pngEx)
+            {
+                DebugLogger.Log($"[ANNOTATIX-CMD] WARNING: Failed to export end PNG: {pngEx.Message}");
+            }
+
+            // Store directory for message before reset
+            string recordingsDir = RecordingState.RecordingsDirectory;
+
             // Reset state
             RecordingState.Reset();
 
             // Update button text
             UpdateButtonText(false);
 
-            DebugLogger.Log($"[ANNOTATIX-CMD] Recording ended. Files saved to: {RecordingState.RecordingsDirectory}");
+            DebugLogger.Log($"[ANNOTATIX-CMD] Recording ended. Files saved to: {recordingsDir}");
             TaskDialog.Show("Annotatix", 
                 "Запись завершена.\n\n" +
-                $"Файлы сохранены в:\n{RecordingState.RecordingsDirectory}");
+                $"Файлы сохранены в:\n{recordingsDir}");
         }
 
         private void UpdateButtonText(bool isRecording)
