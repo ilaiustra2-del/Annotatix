@@ -84,6 +84,12 @@ namespace Annotatix.Module.Commands
             // Start new session
             RecordingState.StartNewSession();
 
+            // Get session directory path BEFORE export
+            string sessionDirectory = JsonExporter.GetSessionDirectory(
+                RecordingState.RecordingsDirectory, 
+                RecordingState.SessionId);
+            DebugLogger.Log($"[ANNOTATIX-CMD] Session directory: {sessionDirectory}");
+
             // Collect start snapshot
             var collector = new ViewDataCollector(doc, view, uiView);
             var snapshot = collector.CollectSnapshot(RecordingState.SessionId, "start");
@@ -91,10 +97,7 @@ namespace Annotatix.Module.Commands
             // Export start snapshot
             RecordingState.StartSnapshotPath = JsonExporter.Export(snapshot, RecordingState.RecordingsDirectory);
 
-            // Get session directory path (where JSON was saved)
-            string sessionDirectory = System.IO.Path.GetDirectoryName(RecordingState.StartSnapshotPath);
-
-            // Export start snapshot as PNG
+            // Export start snapshot as PNG (to session directory)
             try
             {
                 string pngPath = ViewExporter.ExportStartSnapshot(doc, view, sessionDirectory);
@@ -122,6 +125,12 @@ namespace Annotatix.Module.Commands
         {
             DebugLogger.Log("[ANNOTATIX-CMD] Ending recording...");
 
+            // Get session directory path (use stored SessionId)
+            string sessionDirectory = JsonExporter.GetSessionDirectory(
+                RecordingState.RecordingsDirectory, 
+                RecordingState.SessionId);
+            DebugLogger.Log($"[ANNOTATIX-CMD] Session directory: {sessionDirectory}");
+
             // Collect end snapshot
             var collector = new ViewDataCollector(doc, view, uiView);
             var snapshot = collector.CollectSnapshot(RecordingState.SessionId, "end");
@@ -129,10 +138,7 @@ namespace Annotatix.Module.Commands
             // Export end snapshot
             var endPath = JsonExporter.Export(snapshot, RecordingState.RecordingsDirectory);
 
-            // Get session directory path
-            string sessionDirectory = System.IO.Path.GetDirectoryName(endPath);
-
-            // Export end snapshot as PNG
+            // Export end snapshot as PNG (to session directory)
             try
             {
                 string pngPath = ViewExporter.ExportEndSnapshot(doc, view, sessionDirectory);

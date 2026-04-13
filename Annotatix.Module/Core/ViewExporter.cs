@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Autodesk.Revit.DB;
 using PluginsManager.Core;
 
@@ -36,15 +37,21 @@ namespace Annotatix.Module.Core
                     Directory.CreateDirectory(outputDirectory);
                 }
 
-                // Build output path
-                string outputPath = Path.Combine(outputDirectory, $"{fileName}.png");
+                // Target path for final file
+                string targetPath = Path.Combine(outputDirectory, $"{fileName}.png");
 
-                DebugLogger.Log($"[ANNOTATIX-EXPORT] Exporting view '{view.Name}' to PNG: {outputPath}");
+                DebugLogger.Log($"[ANNOTATIX-EXPORT] Exporting view '{view.Name}' to PNG");
+                DebugLogger.Log($"[ANNOTATIX-EXPORT] Target path: {targetPath}");
                 DebugLogger.Log($"[ANNOTATIX-EXPORT] Pixel width: {width}");
+                DebugLogger.Log($"[ANNOTATIX-EXPORT] View crop box active: {view.CropBoxActive}");
+
+                // Record files before export to detect new files
+                var filesBefore = Directory.GetFiles(outputDirectory, "*.*")
+                    .Where(f => f.EndsWith(".png") || f.EndsWith(".jpg") || f.EndsWith(".jpeg"))
+                    .ToHashSet();
 
                 // Configure export options
-                // Use SetOfViews with the view ID to export the ENTIRE view content
-                // (not just the current viewport/zoom state)
+                // Use SetOfViews to export the ENTIRE view content
                 ImageExportOptions options = new ImageExportOptions
                 {
                     ExportRange = ExportRange.SetOfViews,
@@ -54,47 +61,35 @@ namespace Annotatix.Module.Core
                     PixelSize = width
                 };
 
-                // Set the views to export (using ElementId collection)
+                // Set the views to export
                 options.SetViewsAndSheets(new ElementId[] { view.Id });
-
-                DebugLogger.Log($"[ANNOTATIX-EXPORT] Using SetOfViews for view ID: {view.Id}");
-                DebugLogger.Log($"[ANNOTATIX-EXPORT] View crop box active: {view.CropBoxActive}");
 
                 // Export the view
                 doc.ExportImage(options);
 
-                // Revit generates file with view name when using SetOfViews
-                // File name format: "FileName - ViewName.png" or similar
-                string actualPath = FindExportedFile(outputDirectory, fileName, view.Name);
+                // Find newly created file (Revit generates its own filename)
+                var filesAfter = Directory.GetFiles(outputDirectory, "*.*")
+                    .Where(f => f.EndsWith(".png") || f.EndsWith(".jpg") || f.EndsWith(".jpeg"))
+                    .ToHashSet();
 
-                if (actualPath != null && File.Exists(actualPath))
+                string exportedFile = filesAfter.Except(filesBefore).FirstOrDefault();
+
+                if (exportedFile != null && File.Exists(exportedFile))
                 {
-                    DebugLogger.Log($"[ANNOTATIX-EXPORT] Successfully exported to: {actualPath}");
-                    return actualPath;
+                    DebugLogger.Log($"[ANNOTATIX-EXPORT] Revit created file: {exportedFile}");
+
+                    // Rename to target path
+                    if (File.Exists(targetPath))
+                    {
+                        File.Delete(targetPath);
+                    }
+                    File.Move(exportedFile, targetPath);
+                    DebugLogger.Log($"[ANNOTATIX-EXPORT] Renamed to: {targetPath}");
+                    return targetPath;
                 }
                 else
                 {
-                    // Try to find any PNG file created recently in the directory
-                    var files = Directory.GetFiles(outputDirectory, "*.png");
-                    if (files.Length > 0)
-                    {
-                        // Return the most recently created file
-                        string mostRecent = files[0];
-                        DateTime mostRecentTime = File.GetCreationTime(mostRecent);
-                        foreach (string file in files)
-                        {
-                            DateTime fileTime = File.GetCreationTime(file);
-                            if (fileTime > mostRecentTime)
-                            {
-                                mostRecent = file;
-                                mostRecentTime = fileTime;
-                            }
-                        }
-                        DebugLogger.Log($"[ANNOTATIX-EXPORT] Found exported file: {mostRecent}");
-                        return mostRecent;
-                    }
-
-                    DebugLogger.Log($"[ANNOTATIX-EXPORT] WARNING: Could not find exported PNG file");
+                    DebugLogger.Log($"[ANNOTATIX-EXPORT] WARNING: Could not find exported file");
                     return null;
                 }
             }
@@ -103,32 +98,6 @@ namespace Annotatix.Module.Core
                 DebugLogger.Log($"[ANNOTATIX-EXPORT] ERROR exporting view to PNG: {ex.Message}");
                 return null;
             }
-        }
-
-        /// <summary>
-        /// Finds the actual exported file (Revit may append view name to filename)
-        /// </summary>
-        private static string FindExportedFile(string directory, string baseFileName, string viewName)
-        {
-            // Revit typically appends " - ViewName" or similar
-            string[] possiblePatterns = new string[]
-            {
-                $"{baseFileName}.png",
-                $"{baseFileName} - {viewName}.png",
-                $"{baseFileName}_{viewName}.png",
-                $"{baseFileName} {viewName}.png"
-            };
-
-            foreach (string pattern in possiblePatterns)
-            {
-                string fullPath = Path.Combine(directory, pattern);
-                if (File.Exists(fullPath))
-                {
-                    return fullPath;
-                }
-            }
-
-            return null;
         }
 
         /// <summary>

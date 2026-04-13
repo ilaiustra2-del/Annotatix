@@ -20,7 +20,7 @@ namespace Annotatix.Module.Core
             try
             {
                 // Create session subfolder
-                string sessionFolder = Path.Combine(baseDirectory, snapshot.SessionId);
+                string sessionFolder = GetSessionDirectory(baseDirectory, snapshot.SessionId);
                 if (!Directory.Exists(sessionFolder))
                 {
                     Directory.CreateDirectory(sessionFolder);
@@ -47,6 +47,14 @@ namespace Annotatix.Module.Core
                 DebugLogger.Log($"[ANNOTATIX-EXPORTER] Error exporting snapshot: {ex.Message}");
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Gets the session directory path for a given session ID
+        /// </summary>
+        public static string GetSessionDirectory(string baseDirectory, string sessionId)
+        {
+            return Path.Combine(baseDirectory, sessionId);
         }
 
         private static string ExportJson(ViewSnapshot snapshot, string directory, string baseFilename)
