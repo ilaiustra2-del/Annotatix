@@ -13,9 +13,37 @@ namespace Annotatix.Module.Core
     public static class JsonExporter
     {
         /// <summary>
+        /// ML directories for training data
+        /// </summary>
+        public static string MLExamplesDirectory => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+            "Annotatix",
+            "Annotatix_ML",
+            "Examples"
+        );
+
+        public static string MLProcessedDirectory => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+            "Annotatix",
+            "Annotatix_ML",
+            "Processed"
+        );
+
+        /// <summary>
         /// Export snapshot to JSON and XLS files in a session subfolder
         /// </summary>
         public static string Export(ViewSnapshot snapshot, string baseDirectory)
+        {
+            return Export(snapshot, baseDirectory, false);
+        }
+
+        /// <summary>
+        /// Export snapshot to JSON and XLS files in a session subfolder
+        /// </summary>
+        /// <param name="snapshot">The snapshot to export</param>
+        /// <param name="baseDirectory">Base recordings directory</param>
+        /// <param name="exportToMLExamples">If true, also export to Annotatix_ML/Examples</param>
+        public static string Export(ViewSnapshot snapshot, string baseDirectory, bool exportToMLExamples)
         {
             try
             {
@@ -40,6 +68,20 @@ namespace Annotatix.Module.Core
                 // Export XLS (CSV format, opens in Excel)
                 string xlsPath = ExportXls(snapshot, sessionFolder, baseFilename);
 
+                // Export to ML Examples directory if requested
+                if (exportToMLExamples)
+                {
+                    try
+                    {
+                        ExportToMLDirectory(snapshot, MLExamplesDirectory, baseFilename);
+                        DebugLogger.Log($"[ANNOTATIX-EXPORTER] Exported to ML Examples: {MLExamplesDirectory}");
+                    }
+                    catch (Exception mlEx)
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-EXPORTER] WARNING: Failed to export to ML Examples: {mlEx.Message}");
+                    }
+                }
+
                 return jsonPath;
             }
             catch (Exception ex)
@@ -47,6 +89,60 @@ namespace Annotatix.Module.Core
                 DebugLogger.Log($"[ANNOTATIX-EXPORTER] Error exporting snapshot: {ex.Message}");
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Export to a specific ML directory (Examples or Processed)
+        /// </summary>
+        public static string ExportToDirectory(ViewSnapshot snapshot, string targetDirectory)
+        {
+            try
+            {
+                // Create session subfolder
+                string sessionFolder = GetSessionDirectory(targetDirectory, snapshot.SessionId);
+                if (!Directory.Exists(sessionFolder))
+                {
+                    Directory.CreateDirectory(sessionFolder);
+                    DebugLogger.Log($"[ANNOTATIX-EXPORTER] Created ML session folder: {sessionFolder}");
+                }
+
+                // Generate filename
+                string sanitizedProject = SanitizeFileName(snapshot.DocumentName);
+                string sanitizedView = SanitizeFileName(snapshot.ViewName);
+                string dateStr = snapshot.Timestamp.ToString("yyyy-MM-dd");
+                string timeStr = snapshot.Timestamp.ToString("HH-mm-ss");
+                string baseFilename = $"{sanitizedProject}-{sanitizedView}-{dateStr}-{timeStr}-{snapshot.SnapshotType}";
+
+                // Export JSON and CSV
+                string jsonPath = ExportJson(snapshot, sessionFolder, baseFilename);
+                string xlsPath = ExportXls(snapshot, sessionFolder, baseFilename);
+
+                return jsonPath;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[ANNOTATIX-EXPORTER] Error exporting to ML directory: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Export to ML directory with session folder
+        /// </summary>
+        private static string ExportToMLDirectory(ViewSnapshot snapshot, string mlDirectory, string baseFilename)
+        {
+            // Create session subfolder
+            string sessionFolder = GetSessionDirectory(mlDirectory, snapshot.SessionId);
+            if (!Directory.Exists(sessionFolder))
+            {
+                Directory.CreateDirectory(sessionFolder);
+            }
+
+            // Export JSON and CSV
+            string jsonPath = ExportJson(snapshot, sessionFolder, baseFilename);
+            string xlsPath = ExportXls(snapshot, sessionFolder, baseFilename);
+
+            return jsonPath;
         }
 
         /// <summary>
@@ -84,6 +180,8 @@ namespace Annotatix.Module.Core
             // Header info
             sb.AppendLine($"# Project: {snapshot.DocumentName}");
             sb.AppendLine($"# View: {snapshot.ViewName}");
+            sb.AppendLine($"# ViewType: {snapshot.ViewType}");
+            sb.AppendLine($"# ViewScale: {snapshot.ViewScaleString} ({snapshot.ViewScale})");
             sb.AppendLine($"# Timestamp: {snapshot.Timestamp:yyyy-MM-dd HH:mm:ss}");
             sb.AppendLine($"# Type: {snapshot.SnapshotType}");
             sb.AppendLine();
@@ -93,7 +191,7 @@ namespace Annotatix.Module.Core
             sb.AppendLine("ElementId;Category;FamilyName;TypeName;" +
                           "StartModelX;StartModelY;StartModelZ;StartViewX;StartViewY;" +
                           "EndModelX;EndModelY;EndModelZ;EndViewX;EndViewY;HasEndPoint;" +
-                          "Diameter;Width;Height;SizeDisplay;" +
+                          "Diameter;Width;Height;SizeDisplay;Slope;SlopeDisplay;" +
                           "SystemId;SystemName;BelongTo");
             
             foreach (var elem in snapshot.Elements)
@@ -105,6 +203,7 @@ namespace Annotatix.Module.Core
                               $"{elem.ViewEnd.X};{elem.ViewEnd.Y};" +
                               $"{elem.HasEndPoint};" +
                               $"{elem.Diameter};{elem.Width};{elem.Height};{elem.SizeDisplay};" +
+                              $"{elem.Slope};{elem.SlopeDisplay};" +
                               $"{elem.SystemId};{elem.SystemName};{elem.BelongTo}");
             }
 
@@ -137,6 +236,17 @@ namespace Annotatix.Module.Core
             foreach (var sys in snapshot.Systems)
             {
                 sb.AppendLine($"{sys.SystemId};{sys.SystemName};{sys.SystemType};{string.Join(", ", sys.ElementIds)}");
+            }
+
+            sb.AppendLine();
+
+            // Available Annotation Types section
+            sb.AppendLine("=== AVAILABLE ANNOTATION TYPES ===");
+            sb.AppendLine("TypeId;Category;FamilyName;TypeName;BuiltInCategoryId;IsDefault");
+            
+            foreach (var annType in snapshot.AvailableAnnotationTypes)
+            {
+                sb.AppendLine($"{annType.TypeId};{annType.Category};{annType.FamilyName};{annType.TypeName};{annType.BuiltInCategoryId};{annType.IsDefault}");
             }
 
             File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);

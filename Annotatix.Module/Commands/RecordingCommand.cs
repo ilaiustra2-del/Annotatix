@@ -94,8 +94,8 @@ namespace Annotatix.Module.Commands
             var collector = new ViewDataCollector(doc, view, uiView);
             var snapshot = collector.CollectSnapshot(RecordingState.SessionId, "start");
 
-            // Export start snapshot
-            RecordingState.StartSnapshotPath = JsonExporter.Export(snapshot, RecordingState.RecordingsDirectory);
+            // Export start snapshot (with ML Examples export)
+            RecordingState.StartSnapshotPath = JsonExporter.Export(snapshot, RecordingState.RecordingsDirectory, exportToMLExamples: true);
 
             // Export start snapshot as PNG (to session directory)
             try
@@ -135,8 +135,8 @@ namespace Annotatix.Module.Commands
             var collector = new ViewDataCollector(doc, view, uiView);
             var snapshot = collector.CollectSnapshot(RecordingState.SessionId, "end");
 
-            // Export end snapshot
-            var endPath = JsonExporter.Export(snapshot, RecordingState.RecordingsDirectory);
+            // Export end snapshot (with ML Examples export)
+            var endPath = JsonExporter.Export(snapshot, RecordingState.RecordingsDirectory, exportToMLExamples: true);
 
             // Export end snapshot as PNG (to session directory)
             try
@@ -164,7 +164,8 @@ namespace Annotatix.Module.Commands
             DebugLogger.Log($"[ANNOTATIX-CMD] Recording ended. Files saved to: {recordingsDir}");
             TaskDialog.Show("Annotatix", 
                 "Запись завершена.\n\n" +
-                $"Файлы сохранены в:\n{recordingsDir}");
+                $"Файлы сохранены в:\n{recordingsDir}\n\n" +
+                $"И скопированы в:\n{JsonExporter.MLExamplesDirectory}");
         }
 
         private void UpdateButtonText(bool isRecording)

@@ -44,7 +44,7 @@
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Net.Http" />
     <Reference Include="netstandard">
-      <HintPath>$(NuGetPackageRoot)microsoft.netframework.referenceassemblies.net48\1.0.3\build\.NETFramework\v4.8\Facades\netstandard.dll</HintPath>
+      <HintPath>C:\Users\Свеж как огурец\.nuget\packages\microsoft.netframework.referenceassemblies.net48\1.0.3\build\.NETFramework\v4.8\Facades\netstandard.dll</HintPath>
     </Reference>
   </ItemGroup>
 

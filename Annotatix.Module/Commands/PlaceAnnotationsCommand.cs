@@ -184,14 +184,17 @@ namespace Annotatix.Module.Commands
             }
                     
             // Handle IndependentTag
-            if (annotationData.TaggedElementId == null || annotationData.TaggedElementId == 0)
+            // If TaggedElementId is not set, use ElementId from annotation data
+            // (ML model uses ElementId to reference the element to tag)
+            long targetElementId = annotationData.TaggedElementId ?? annotationData.ElementId;
+            if (targetElementId == 0)
             {
                 DebugLogger.Log($"[ANNOTATIX-PLACE] Annotation {annotationData.ElementId} has no tagged element, skipping");
                 return false;
             }
 
             // Find the tagged element in the current document
-            var taggedElement = doc.GetElement(new ElementId(annotationData.TaggedElementId.Value));
+            var taggedElement = doc.GetElement(new ElementId(targetElementId));
             if (taggedElement == null)
             {
                 DebugLogger.Log($"[ANNOTATIX-PLACE] Tagged element {annotationData.TaggedElementId} not found in document");

@@ -14,15 +14,36 @@ namespace Annotatix.Module.Core
         public string ViewName { get; set; }
         public DateTime Timestamp { get; set; }
         public string SnapshotType { get; set; } // "start" or "end"
+        
+        /// <summary>
+        /// View scale (e.g., 100 for 1:100, 50 for 1:50)
+        /// </summary>
+        public double ViewScale { get; set; }
+        
+        /// <summary>
+        /// View scale as string (e.g., "1:100", "1:50")
+        /// </summary>
+        public string ViewScaleString { get; set; }
+        
+        /// <summary>
+        /// View type (e.g., "FloorPlan", "Section", "ThreeD")
+        /// </summary>
+        public string ViewType { get; set; }
+        
         public List<ElementData> Elements { get; set; }
         public List<AnnotationData> Annotations { get; set; }
         public List<SystemData> Systems { get; set; }
+        /// <summary>
+        /// Available annotation family types in the project (for ML to know what tags are available)
+        /// </summary>
+        public List<AnnotationTypeData> AvailableAnnotationTypes { get; set; }
 
         public ViewSnapshot()
         {
             Elements = new List<ElementData>();
             Annotations = new List<AnnotationData>();
             Systems = new List<SystemData>();
+            AvailableAnnotationTypes = new List<AnnotationTypeData>();
         }
     }
 
@@ -52,6 +73,16 @@ namespace Annotatix.Module.Core
         public double? Width { get; set; }    // For rectangular ducts
         public double? Height { get; set; }   // For rectangular ducts
         public string SizeDisplay { get; set; } // Human-readable size string
+        
+        /// <summary>
+        /// Pipe slope in percentage (e.g., 2.0 for 2%)
+        /// </summary>
+        public double? Slope { get; set; }
+        
+        /// <summary>
+        /// Pipe slope as string (e.g., "2.0%")
+        /// </summary>
+        public string SlopeDisplay { get; set; }
             
         public long? SystemId { get; set; }
         public string SystemName { get; set; }
@@ -168,6 +199,42 @@ namespace Annotatix.Module.Core
         {
             ElementIds = new List<long>();
         }
+    }
+
+    /// <summary>
+    /// Data for an available annotation family type in the project
+    /// </summary>
+    public class AnnotationTypeData
+    {
+        /// <summary>
+        /// Element ID of the family symbol (type)
+        /// </summary>
+        public long TypeId { get; set; }
+        
+        /// <summary>
+        /// Category name (e.g., "Mechanical Equipment Tags", "Pipe Tags")
+        /// </summary>
+        public string Category { get; set; }
+        
+        /// <summary>
+        /// Family name
+        /// </summary>
+        public string FamilyName { get; set; }
+        
+        /// <summary>
+        /// Type/symbol name
+        /// </summary>
+        public string TypeName { get; set; }
+        
+        /// <summary>
+        /// Built-in category id for filtering (e.g., BuiltInCategory.OST_PipeTags)
+        /// </summary>
+        public int BuiltInCategoryId { get; set; }
+        
+        /// <summary>
+        /// Whether this is the default type for the category
+        /// </summary>
+        public bool IsDefault { get; set; }
     }
 
     /// <summary>

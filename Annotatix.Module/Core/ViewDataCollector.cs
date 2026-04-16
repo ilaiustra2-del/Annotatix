@@ -41,7 +41,10 @@ namespace Annotatix.Module.Core
                 ViewId = _view.Id.Value,
                 ViewName = _view.Name,
                 Timestamp = DateTime.Now,
-                SnapshotType = snapshotType
+                SnapshotType = snapshotType,
+                ViewScale = GetViewScale(),
+                ViewScaleString = GetViewScaleString(),
+                ViewType = _view.ViewType.ToString()
             };
 
             DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Collecting {snapshotType} snapshot for view: {_view.Name}");
@@ -79,7 +82,14 @@ namespace Annotatix.Module.Core
                 snapshot.Systems.Add(system);
             }
 
-            DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Collected {snapshot.Elements.Count} elements, {snapshot.Annotations.Count} annotations, {snapshot.Systems.Count} systems");
+            // Collect available annotation types in project
+            var annotationTypes = GetAvailableAnnotationTypes();
+            foreach (var annType in annotationTypes)
+            {
+                snapshot.AvailableAnnotationTypes.Add(annType);
+            }
+
+            DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Collected {snapshot.Elements.Count} elements, {snapshot.Annotations.Count} annotations, {snapshot.Systems.Count} systems, {snapshot.AvailableAnnotationTypes.Count} annotation types");
 
             return snapshot;
         }
@@ -1257,14 +1267,35 @@ namespace Annotatix.Module.Core
         {
             try
             {
-                // Pipes - get diameter
+                // Pipes - get diameter and slope
                 if (element is Pipe pipe)
                 {
                     data.Diameter = pipe.Diameter;
                     // Convert to mm for display (1 foot = 304.8 mm)
                     double diameterMm = pipe.Diameter * 304.8;
                     data.SizeDisplay = $"⌀{diameterMm:F0}";
-                    DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Pipe {element.Id}: Diameter={diameterMm:F1}mm");
+                    
+                    // Get slope - Revit stores slope as a ratio (rise/run)
+                    Parameter slopeParam = pipe.get_Parameter(BuiltInParameter.RBS_PIPE_SLOPE);
+                    if (slopeParam != null)
+                    {
+                        double slopeValue = slopeParam.AsDouble();
+                        if (slopeValue != 0)
+                        {
+                            // Convert to percentage (slope * 100)
+                            data.Slope = Math.Abs(slopeValue * 100);
+                            data.SlopeDisplay = $"{data.Slope:F2}%";
+                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Pipe {element.Id}: Diameter={diameterMm:F1}mm, Slope={data.SlopeDisplay}");
+                        }
+                        else
+                        {
+                            DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Pipe {element.Id}: Diameter={diameterMm:F1}mm, Slope=0%");
+                        }
+                    }
+                    else
+                    {
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Pipe {element.Id}: Diameter={diameterMm:F1}mm");
+                    }
                 }
                 // Ducts - get width/height or diameter
                 else if (element is Duct duct)
@@ -1645,6 +1676,123 @@ namespace Annotatix.Module.Core
             }
 
             return systemsDict.Values.ToList();
+        }
+
+        /// <summary>
+        /// Get all available annotation family types in the project
+        /// </summary>
+        private List<AnnotationTypeData> GetAvailableAnnotationTypes()
+        {
+            var annotationTypes = new List<AnnotationTypeData>();
+
+            try
+            {
+                // Categories that represent annotation tags
+                var tagCategories = new[]
+                {
+                    BuiltInCategory.OST_PipeTags,
+                    BuiltInCategory.OST_DuctTags,
+                    BuiltInCategory.OST_DuctAccessoryTags,       // Марки арматуры воздуховодов
+                    BuiltInCategory.OST_MechanicalEquipmentTags,
+                    BuiltInCategory.OST_ElectricalEquipmentTags,
+                    BuiltInCategory.OST_LightingDeviceTags,
+                    BuiltInCategory.OST_LightingFixtureTags,
+                    BuiltInCategory.OST_CableTrayTags,
+                    BuiltInCategory.OST_ConduitTags,
+                    BuiltInCategory.OST_FlexDuctTags,
+                    BuiltInCategory.OST_FlexPipeTags,
+                    BuiltInCategory.OST_GenericModelTags,
+                    BuiltInCategory.OST_MultiCategoryTags,
+                    BuiltInCategory.OST_AreaTags,
+                    BuiltInCategory.OST_RoomTags,
+                    BuiltInCategory.OST_DuctTerminalTags,        // Марки воздухораспределителей (если существует)
+                    BuiltInCategory.OST_SpecialityEquipmentTags   // Специальное оборудование
+                };
+
+                foreach (var bic in tagCategories)
+                {
+                    try
+                    {
+                        // Get all family symbols of this annotation category
+                        var collector = new FilteredElementCollector(_document)
+                            .OfCategory(bic)
+                            .OfClass(typeof(FamilySymbol));
+
+                        foreach (FamilySymbol symbol in collector)
+                        {
+                            if (symbol == null) continue;
+
+                            try
+                            {
+                                var annotationType = new AnnotationTypeData
+                                {
+                                    TypeId = symbol.Id.Value,
+                                    Category = symbol.Category?.Name ?? bic.ToString().Replace("OST_", "").Replace("Tags", " Tags"),
+                                    FamilyName = symbol.FamilyName,
+                                    TypeName = symbol.Name,
+                                    BuiltInCategoryId = (int)bic,
+                                    IsDefault = false
+                                };
+
+                                annotationTypes.Add(annotationType);
+                            }
+                            catch (Exception ex)
+                            {
+                                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Error processing annotation symbol {symbol?.Id}: {ex.Message}");
+                            }
+                        }
+                    }
+                    catch (Exception catEx)
+                    {
+                        // Some categories might not exist in the project
+                        DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Could not collect category {bic}: {catEx.Message}");
+                    }
+                }
+
+                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Found {annotationTypes.Count} annotation types in project");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Error getting annotation types: {ex.Message}");
+            }
+
+            return annotationTypes;
+        }
+
+        /// <summary>
+        /// Get view scale as double (e.g., 100.0 for 1:100)
+        /// </summary>
+        private double GetViewScale()
+        {
+            try
+            {
+                return _view.Scale;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Error getting view scale: {ex.Message}");
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Get view scale as string (e.g., "1:100")
+        /// </summary>
+        private string GetViewScaleString()
+        {
+            try
+            {
+                double scale = _view.Scale;
+                if (scale <= 0)
+                    return "Unknown";
+                
+                return $"1:{(int)scale}";
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.Log($"[ANNOTATIX-COLLECTOR] Error getting view scale string: {ex.Message}");
+                return "Unknown";
+            }
         }
     }
 }

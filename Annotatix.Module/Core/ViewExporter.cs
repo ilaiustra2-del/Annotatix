@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using Autodesk.Revit.DB;
 using PluginsManager.Core;
 
@@ -19,34 +20,39 @@ namespace Annotatix.Module.Core
         /// <summary>
         /// Exports a view to PNG format
         /// </summary>
-        /// <param name="doc">The document containing the view</param>
-        /// <param name="view">The view to export</param>
-        /// <param name="outputDirectory">Directory to save the PNG file</param>
-        /// <param name="fileName">Name of the output file (without extension)</param>
-        /// <param name="pixelWidth">Width in pixels (height is calculated proportionally)</param>
-        /// <returns>Full path to the exported PNG file, or null if export failed</returns>
-        public static string ExportViewToPng(Document doc, View view, string outputDirectory, string fileName, int? pixelWidth = null)
+        public static string ExportViewToPng(Document doc, View view, string sessionDirectory, string fileName, int? pixelWidth = null)
         {
             try
             {
                 int width = pixelWidth ?? DefaultPixelWidth;
 
-                // Ensure output directory exists
-                if (!Directory.Exists(outputDirectory))
+                // Ensure session directory exists
+                if (!Directory.Exists(sessionDirectory))
                 {
-                    Directory.CreateDirectory(outputDirectory);
+                    Directory.CreateDirectory(sessionDirectory);
                 }
 
-                // Target path for final file
-                string targetPath = Path.Combine(outputDirectory, $"{fileName}.png");
+                // Target path for final file in session directory
+                string targetPath = Path.Combine(sessionDirectory, $"{fileName}.png");
+
+                // Get the module directory (where Annotatix.Module.dll is located)
+                string moduleDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                // Revit exports to PARENT directory of the module!
+                string exportDir = Directory.GetParent(moduleDir)?.FullName ?? moduleDir;
 
                 DebugLogger.Log($"[ANNOTATIX-EXPORT] Exporting view '{view.Name}' to PNG");
+                DebugLogger.Log($"[ANNOTATIX-EXPORT] Export directory: {exportDir}");
                 DebugLogger.Log($"[ANNOTATIX-EXPORT] Target path: {targetPath}");
-                DebugLogger.Log($"[ANNOTATIX-EXPORT] Pixel width: {width}");
-                DebugLogger.Log($"[ANNOTATIX-EXPORT] View crop box active: {view.CropBoxActive}");
 
-                // Record files before export to detect new files
-                var filesBefore = Directory.GetFiles(outputDirectory, "*.*")
+                // Log view bounds info
+                if (view is View3D view3D)
+                {
+                    DebugLogger.Log($"[ANNOTATIX-EXPORT] 3D View - SectionBox enabled: {view3D.IsSectionBoxActive}");
+                }
+                DebugLogger.Log($"[ANNOTATIX-EXPORT] View CropBoxActive: {view.CropBoxActive}");
+
+                // Record files before export in EXPORT directory
+                var filesBefore = Directory.GetFiles(exportDir, "*.*")
                     .Where(f => f.EndsWith(".png") || f.EndsWith(".jpg") || f.EndsWith(".jpeg"))
                     .ToHashSet();
 
@@ -55,7 +61,7 @@ namespace Annotatix.Module.Core
                 ImageExportOptions options = new ImageExportOptions
                 {
                     ExportRange = ExportRange.SetOfViews,
-                    FilePath = outputDirectory,
+                    FilePath = exportDir,
                     ImageResolution = ImageResolution.DPI_150,
                     ZoomType = ZoomFitType.FitToPage,
                     PixelSize = width
@@ -67,8 +73,8 @@ namespace Annotatix.Module.Core
                 // Export the view
                 doc.ExportImage(options);
 
-                // Find newly created file (Revit generates its own filename)
-                var filesAfter = Directory.GetFiles(outputDirectory, "*.*")
+                // Find newly created file in EXPORT directory
+                var filesAfter = Directory.GetFiles(exportDir, "*.*")
                     .Where(f => f.EndsWith(".png") || f.EndsWith(".jpg") || f.EndsWith(".jpeg"))
                     .ToHashSet();
 
@@ -78,18 +84,18 @@ namespace Annotatix.Module.Core
                 {
                     DebugLogger.Log($"[ANNOTATIX-EXPORT] Revit created file: {exportedFile}");
 
-                    // Rename to target path
+                    // Move to session directory with correct name
                     if (File.Exists(targetPath))
                     {
                         File.Delete(targetPath);
                     }
                     File.Move(exportedFile, targetPath);
-                    DebugLogger.Log($"[ANNOTATIX-EXPORT] Renamed to: {targetPath}");
+                    DebugLogger.Log($"[ANNOTATIX-EXPORT] Moved to: {targetPath}");
                     return targetPath;
                 }
                 else
                 {
-                    DebugLogger.Log($"[ANNOTATIX-EXPORT] WARNING: Could not find exported file");
+                    DebugLogger.Log($"[ANNOTATIX-EXPORT] WARNING: Could not find exported file in {exportDir}");
                     return null;
                 }
             }

@@ -11,7 +11,7 @@ Write-Host "========================================"
 
 # CRITICAL FIX: MSBuild mangles Cyrillic paths - always use script location
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$TargetDir = [System.IO.Path]::Combine($ProjectDir, "bin", "Release", "net48")
+$TargetDir = [System.IO.Path]::Combine($ProjectDir, "bin", "Release")
 $TargetFileName = "PluginsManager.dll"
 
 Write-Host "Project Directory: $ProjectDir"

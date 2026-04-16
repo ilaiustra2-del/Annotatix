@@ -393,6 +393,52 @@ namespace PluginsManager
                         catch { }
                     }
 
+                    // Send for Analysis button - отправка данных на ML анализ
+                    PushButtonData sendForAnalysisBtnData = new PushButtonData(
+                        "AnnotatixSendForAnalysisRibbon",
+                        "Отправить\nна анализ",
+                        assemblyPath,
+                        "PluginsManager.Commands.AnnotatixSendForAnalysisRibbonCommand"
+                    );
+                    sendForAnalysisBtnData.ToolTip =
+                        "Отправляет текущее состояние вида на анализ ML модели.\n" +
+                        "Создает файлы -start для обработки.";
+
+                    PushButton sendForAnalysisBtn = panelAnnotatix.AddItem(sendForAnalysisBtnData) as PushButton;
+
+                    // Set icon for Send for Analysis button
+                    if (File.Exists(annotatixIconPath))
+                    {
+                        try
+                        {
+                            sendForAnalysisBtn.LargeImage = new BitmapImage(new Uri(annotatixIconPath));
+                        }
+                        catch { }
+                    }
+
+                    // Annotate Ductwork button - детерминированное размещение аннотаций
+                    PushButtonData annotateDuctworkBtnData = new PushButtonData(
+                        "AnnotateDuctworkRibbon",
+                        "Авто-разметка\nвоздуховодов",
+                        assemblyPath,
+                        "PluginsManager.Commands.AnnotateDuctworkRibbonCommand"
+                    );
+                    annotateDuctworkBtnData.ToolTip =
+                        "Автоматическое размещение аннотаций на воздуховодах.\n" +
+                        "Использует детерминированный алгоритм (без ML).";
+
+                    PushButton annotateDuctworkBtn = panelAnnotatix.AddItem(annotateDuctworkBtnData) as PushButton;
+
+                    // Set icon for Annotate Ductwork button
+                    if (File.Exists(annotatixIconPath))
+                    {
+                        try
+                        {
+                            annotateDuctworkBtn.LargeImage = new BitmapImage(new Uri(annotatixIconPath));
+                        }
+                        catch { }
+                    }
+
                     Core.DebugLogger.Log("[APP] Annotatix ribbon panel created");
                 }
                 catch (Exception ex)
