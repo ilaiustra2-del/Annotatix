@@ -100,25 +100,25 @@ namespace Annotatix.Module.Core
     {
         // Standardized annotation families
         private const string FAMILY_DUCT_ROUND = "ADSK_Марка_Воздуховодов_ОсновныеОбозначения";
-        private const string TYPE_DUCT_ROUND = "Круглый воздуховод_Размер и расход";
+        private const string TYPE_DUCT_ROUND = "Круглый воздуховод_Размер и расход (2)";
         
         private const string FAMILY_DUCT_RECT = "ADSK_Марка_Воздуховодов_ОсновныеОбозначения";
-        private const string TYPE_DUCT_RECT = "Прямоугольный воздуховод_Размер и расход";
+        private const string TYPE_DUCT_RECT = "Прямоугольный воздуховод_Размер и расход (2)";
         
         private const string FAMILY_AIR_TERMINAL_1 = "ADSK_M_Воздухораспределители";
-        private const string TYPE_AIR_TERMINAL_1 = "Имя типа / Расход_30";
+        private const string TYPE_AIR_TERMINAL_1 = "Имя типа / Расход (25)";
         
         private const string FAMILY_AIR_TERMINAL_2 = "ADSK_M_Воздухораспределители";
-        private const string TYPE_AIR_TERMINAL_2 = "ADSK_Наименование краткое / Расход_20";
+        private const string TYPE_AIR_TERMINAL_2 = "ADSK_Наименование краткое / Расход (2)";
         
         private const string FAMILY_DUCT_ACCESSORY = "ADSK_M_Арматура воздуховодов";
-        private const string TYPE_DUCT_ACCESSORY = "ADSK_Марка_15";
+        private const string TYPE_DUCT_ACCESSORY = "ADSK_Марка (2)";
         
         private const string FAMILY_SPOT_DIMENSION = "Сист. семейство: Высотные отметки";
         private const string TYPE_SPOT_DIMENSION = "ADSK_Стрелка_Относительная_Вниз";
         
         private const string FAMILY_EQUIPMENT = "ADSK_M_Оборудование";
-        private const string TYPE_EQUIPMENT = "ADSK_Марка_15";
+        private const string TYPE_EQUIPMENT = "ADSK_Марка (2)";
         
         /// <summary>
         /// Analyze system graph and determine annotations needed

@@ -60,7 +60,7 @@ namespace Annotatix.Module.Commands
                 
                 // Stage 2: Build system graphs
                 DebugLogger.Log("[ANNOTATE-DUCTWORK] Stage 2: Building system graphs...");
-                var graphBuilder = new SystemGraphBuilder();
+                var graphBuilder = new SystemGraphBuilder(doc);  // Pass document for Connector API
                 var graphs = graphBuilder.BuildFromSnapshot(snapshot);
                 DebugLogger.Log($"[ANNOTATE-DUCTWORK] Built {graphs.Count} system graphs");
                 
@@ -111,29 +111,23 @@ namespace Annotatix.Module.Commands
                 
                 // Stage 6: Place annotations (greedy algorithm)
                 DebugLogger.Log("[ANNOTATE-DUCTWORK] Stage 6: Placing annotations...");
+                double viewScale = view.Scale;
+                if (viewScale < 1) viewScale = 1;
+                
                 var placementConfig = new PlacementConfig
                 {
-                    // Use sensible defaults based on view scale
-                    // For 1:100 scale, these values work well
-                    BaseElbowHeight = 1.5,       // Base elbow height in meters
-                    BaseHorizontalOffset = 2.0,  // Base horizontal offset in meters
-                    MinLeaderLength = 1.0,       // Minimum leader length
+                    // All offset/height values are now calculated in paper space (mm) and converted
+                    // to model feet using view scale inside GreedyPlacementService.
+                    // These config values control the elbow height iteration loop.
+                    BaseElbowHeight = 3.0 / 304.8 * viewScale,       // 3mm on paper base elbow height
+                    BaseHorizontalOffset = 3.0 / 304.8 * viewScale,  // 3mm on paper base horizontal offset
+                    MinLeaderLength = 1.0 / 304.8 * viewScale,       // 1mm on paper minimum leader
                     ElementSizeMultiplier = 0.75, // Scale offset by element size
-                    MaxElbowHeight = 5.0,        // Maximum elbow height to try
-                    ElbowHeightStep = 0.5        // Step size for trying different heights
+                    MaxElbowHeight = 10.0 / 304.8 * viewScale,   // 10mm on paper max elbow height
+                    ElbowHeightStep = 1.0 / 304.8 * viewScale    // 1mm on paper step size
                 };
                 
-                // Adjust for view scale
-                double viewScale = view.Scale;
-                if (viewScale > 1)
-                {
-                    // Scale the base values for larger view scales
-                    double scaleFactor = 1 + Math.Log10(viewScale) * 0.5;
-                    placementConfig.BaseElbowHeight *= scaleFactor;
-                    placementConfig.BaseHorizontalOffset *= scaleFactor;
-                    placementConfig.BaseZOffset *= scaleFactor;
-                    DebugLogger.Log($"[ANNOTATE-DUCTWORK] View scale {viewScale}, scale factor {scaleFactor:F2}");
-                }
+                DebugLogger.Log($"[ANNOTATE-DUCTWORK] View scale {viewScale}, config MaxElbow={placementConfig.MaxElbowHeight:F2}ft, Step={placementConfig.ElbowHeightStep:F2}ft");
                 
                 var placementService = new GreedyPlacementService(
                     doc, view, collisionDetector, sizes, placementConfig);

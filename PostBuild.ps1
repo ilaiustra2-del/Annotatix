@@ -11,7 +11,19 @@ Write-Host "========================================"
 
 # CRITICAL FIX: MSBuild mangles Cyrillic paths - always use script location
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$TargetDir = [System.IO.Path]::Combine($ProjectDir, "bin", "Release")
+# Detect correct output folder - prefer R25 (Revit 2025) if it exists, otherwise Release
+$R25Dir = [System.IO.Path]::Combine($ProjectDir, "bin", "R25")
+$ReleaseDir = [System.IO.Path]::Combine($ProjectDir, "bin", "Release")
+if (Test-Path $R25Dir) {
+    $TargetDir = $R25Dir
+    Write-Host "Using R25 build output: $TargetDir"
+} elseif (Test-Path $ReleaseDir) {
+    $TargetDir = $ReleaseDir
+    Write-Host "Using Release build output: $TargetDir"
+} else {
+    $TargetDir = $ReleaseDir
+    Write-Host "WARNING: No build output found, defaulting to: $TargetDir"
+}
 $TargetFileName = "PluginsManager.dll"
 
 Write-Host "Project Directory: $ProjectDir"

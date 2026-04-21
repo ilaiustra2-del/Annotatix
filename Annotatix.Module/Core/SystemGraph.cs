@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Mechanical;
+using Autodesk.Revit.DB.Plumbing;
 using PluginsManager.Core;
 
 namespace Annotatix.Module.Core
@@ -138,12 +139,27 @@ namespace Annotatix.Module.Core
     /// </summary>
     public class SystemGraphBuilder
     {
+        private Document _document;
+            
         // Tolerance for connector matching in view units (increased for reliability)
         private const double CONNECTOR_TOLERANCE = 0.5; // 0.5 view units (~150mm at 1:100)
-        
+            
         // Tolerance for model coordinate matching (in feet)
         private const double MODEL_TOLERANCE = 0.15; // ~45mm in model units
-        
+            
+        /// <summary>
+        /// Default constructor for backward compatibility
+        /// </summary>
+        public SystemGraphBuilder() { }
+            
+        /// <summary>
+        /// Constructor with Document access for Connector API
+        /// </summary>
+        public SystemGraphBuilder(Document document)
+        {
+            _document = document;
+        }
+            
         /// <summary>
         /// Build system graphs from view snapshot
         /// </summary>
@@ -280,46 +296,26 @@ namespace Annotatix.Module.Core
         
         private void BuildConnections(SystemGraph graph, List<ElementData> elements)
         {
-            // First try using Revit Connector API for MEP elements
-            var elementDict = elements.ToDictionary(e => e.ElementId, e => e);
+            // Build a set of element IDs in this graph for quick lookup
+            var elementIdsInGraph = new HashSet<long>(graph.Nodes.Keys);
             
-            foreach (var elemData in elements)
+            // First, try using Revit Connector API if Document is available
+            if (_document != null)
             {
-                if (!graph.Nodes.ContainsKey(elemData.ElementId))
-                    continue;
-                
-                var node = graph.Nodes[elemData.ElementId];
-                
-                // Try to get physical connections via Connector API
-                try
+                BuildConnectionsViaAPI(graph, elements, elementIdsInGraph);
+            }
+            
+            // Fallback: also check geometric connections for elements not connected via API
+            var connectedViaAPI = new HashSet<long>();
+            foreach (var node in graph.Nodes.Values)
+            {
+                if (node.ConnectedNodeIds.Count > 0)
                 {
-                    // Get all connectors for this element
-                    var connectors = GetConnectorsForElement(elemData.ElementId, elements.FirstOrDefault(e => e.ElementId == elemData.ElementId));
-                    
-                    foreach (var connectedId in connectors)
-                    {
-                        if (connectedId != elemData.ElementId && graph.Nodes.ContainsKey(connectedId))
-                        {
-                            // Add connection
-                            if (!node.ConnectedNodeIds.Contains(connectedId))
-                            {
-                                node.ConnectedNodeIds.Add(connectedId);
-                                
-                                // Also add reverse connection
-                                var otherNode = graph.Nodes[connectedId];
-                                if (!otherNode.ConnectedNodeIds.Contains(elemData.ElementId))
-                                {
-                                    otherNode.ConnectedNodeIds.Add(elemData.ElementId);
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    DebugLogger.Log($"[SYSTEM-GRAPH] Connector API failed for {elemData.ElementId}: {ex.Message}");
+                    connectedViaAPI.Add(node.ElementId);
                 }
             }
+            
+            DebugLogger.Log($"[SYSTEM-GRAPH] Connected via API: {connectedViaAPI.Count} elements");
             
             // Fallback: also check geometric connections for elements not connected via API
             var linearElements = elements.Where(e => e.HasEndPoint).ToList();
@@ -388,17 +384,84 @@ namespace Annotatix.Module.Core
         }
         
         /// <summary>
-        /// Get connected element IDs using Revit Connector API
+        /// Build connections using Revit Connector API
         /// </summary>
-        private HashSet<long> GetConnectorsForElement(long elementId, ElementData elemData)
+        private void BuildConnectionsViaAPI(SystemGraph graph, List<ElementData> elements, HashSet<long> elementIdsInGraph)
         {
-            var connectedIds = new HashSet<long>();
+            int connectionCount = 0;
             
-            // Note: We don't have access to Document here, so we rely on geometric fallback
-            // In a real implementation, we would need to pass the Document or use a different approach
-            // For now, return empty and let the geometric method handle it
+            foreach (var elemData in elements)
+            {
+                if (!graph.Nodes.ContainsKey(elemData.ElementId))
+                    continue;
+                
+                var node = graph.Nodes[elemData.ElementId];
+                
+                try
+                {
+                    var element = _document.GetElement(new ElementId(elemData.ElementId));
+                    if (element == null) continue;
+                    
+                    // Get connectors based on element type
+                    ConnectorSet connectors = null;
+                    
+                    if (element is Duct duct)
+                    {
+                        connectors = duct.ConnectorManager?.Connectors;
+                    }
+                    else if (element is Pipe pipe)
+                    {
+                        connectors = pipe.ConnectorManager?.Connectors;
+                    }
+                    else if (element is FamilyInstance famInst && famInst.MEPModel != null)
+                    {
+                        // For fittings, equipment, air terminals, accessories
+                        connectors = famInst.MEPModel.ConnectorManager?.Connectors;
+                    }
+                    
+                    if (connectors == null) continue;
+                    
+                    foreach (Connector connector in connectors)
+                    {
+                        // Get all connected connectors
+                        var connectedConnectors = connector.AllRefs;
+                        if (connectedConnectors == null) continue;
+                        
+                        foreach (Connector connected in connectedConnectors)
+                        {
+                            var connectedElementId = connected.Owner.Id.Value;
+                            
+                            // Only add if the connected element is in our graph
+                            if (elementIdsInGraph.Contains(connectedElementId) && 
+                                connectedElementId != elemData.ElementId)
+                            {
+                                if (!node.ConnectedNodeIds.Contains(connectedElementId))
+                                {
+                                    node.ConnectedNodeIds.Add(connectedElementId);
+                                    connectionCount++;
+                                    
+                                    // Also add reverse connection
+                                    if (graph.Nodes.ContainsKey(connectedElementId))
+                                    {
+                                        var otherNode = graph.Nodes[connectedElementId];
+                                        if (!otherNode.ConnectedNodeIds.Contains(elemData.ElementId))
+                                        {
+                                            otherNode.ConnectedNodeIds.Add(elemData.ElementId);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log but continue
+                    DebugLogger.Log($"[SYSTEM-GRAPH] Connector API error for {elemData.ElementId}: {ex.Message}");
+                }
+            }
             
-            return connectedIds;
+            DebugLogger.Log($"[SYSTEM-GRAPH] Built {connectionCount} connections via Connector API");
         }
         
         private SystemGraphEdge FindConnection(ElementData elemA, ElementData elemB)
