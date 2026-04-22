@@ -118,7 +118,8 @@ namespace Annotatix.Module.Core
     /// </summary>
     public class CollisionDetector
     {
-        private readonly List<LineSegment2D> _lineSegments = new List<LineSegment2D>();
+        private readonly List<LineSegment2D> _modelLineSegments = new List<LineSegment2D>();
+        private readonly List<LineSegment2D> _annotationLineSegments = new List<LineSegment2D>();
         private readonly List<BBox2D> _occupiedAreas = new List<BBox2D>();
         private readonly List<VisualIntersection> _intersections = new List<VisualIntersection>();
         
@@ -131,7 +132,7 @@ namespace Annotatix.Module.Core
             {
                 if (node.HasEndPoint && node.ViewStart != null && node.ViewEnd != null)
                 {
-                    _lineSegments.Add(new LineSegment2D
+                    _modelLineSegments.Add(new LineSegment2D
                     {
                         X1 = node.ViewStart.X,
                         Y1 = node.ViewStart.Y,
@@ -155,7 +156,7 @@ namespace Annotatix.Module.Core
             {
                 if (elem.HasEndPoint)
                 {
-                    _lineSegments.Add(new LineSegment2D
+                    _modelLineSegments.Add(new LineSegment2D
                     {
                         X1 = elem.ViewStart.X,
                         Y1 = elem.ViewStart.Y,
@@ -193,12 +194,15 @@ namespace Annotatix.Module.Core
         {
             _intersections.Clear();
             
-            for (int i = 0; i < _lineSegments.Count; i++)
+            // Combine model and annotation segments for intersection detection
+            var allSegments = _modelLineSegments.Concat(_annotationLineSegments).ToList();
+            
+            for (int i = 0; i < allSegments.Count; i++)
             {
-                for (int j = i + 1; j < _lineSegments.Count; j++)
+                for (int j = i + 1; j < allSegments.Count; j++)
                 {
-                    var segA = _lineSegments[i];
-                    var segB = _lineSegments[j];
+                    var segA = allSegments[i];
+                    var segB = allSegments[j];
                     
                     // Skip if same element
                     if (segA.ElementId == segB.ElementId)
@@ -260,18 +264,37 @@ namespace Annotatix.Module.Core
         }
         
         /// <summary>
-        /// Check if a bounding box collides with OTHER ANNOTATIONS (occupied areas) only.
-        /// The header (shelf) of an annotation can visually overlap model elements in 3D views,
-        /// but must not overlap other annotation headers.
-        /// Model element intersections are handled by HasLeaderCollision (leader line check).
+        /// Check if a bounding box collides with other annotations (occupied areas)
+        /// AND model elements (duct/pipe line segments).
+        /// The header rectangle must not overlap either other annotations or model elements.
+        /// For 3D views: set checkModelElements=false to skip model element checks.
         /// </summary>
-        public bool HasHeaderCollision(BBox2D bbox)
+        public bool HasHeaderCollision(BBox2D bbox, bool checkModelElements = true)
         {
-            // Check against occupied areas (other annotations) ONLY
+            // Check against occupied areas (other annotations)
             foreach (var occupied in _occupiedAreas)
             {
                 if (bbox.Intersects(occupied))
                     return true;
+            }
+            
+            // Always check annotation leader lines (registered from placed annotations)
+            double annotationMargin = 0.01;
+            foreach (var seg in _annotationLineSegments)
+            {
+                if (BBoxIntersectsLine(bbox, seg, annotationMargin))
+                    return true;
+            }
+            
+            // Only check model element line segments in 2D views
+            if (checkModelElements)
+            {
+                double margin = 0.01; // Small margin (3mm) around elements
+                foreach (var seg in _modelLineSegments)
+                {
+                    if (BBoxIntersectsLine(bbox, seg, margin))
+                        return true;
+                }
             }
             
             return false;
@@ -309,7 +332,7 @@ namespace Annotatix.Module.Core
             // (ducts, pipes, etc.) - this is expected and not a collision.
             if (checkModelElements)
             {
-                foreach (var seg in _lineSegments)
+                foreach (var seg in _modelLineSegments)
                 {
                     if (excludeElementId.HasValue && seg.ElementId == excludeElementId.Value)
                         continue;
@@ -324,6 +347,24 @@ namespace Annotatix.Module.Core
                                                          seg.X1, seg.Y1, seg.X2, seg.Y2, elementMargin))
                         return true;
                 }
+            }
+            
+            // Always check annotation leader lines (registered from placed annotations)
+            // This must be done even in 3D views to prevent annotations from overlapping each other.
+            foreach (var seg in _annotationLineSegments)
+            {
+                if (excludeElementId.HasValue && seg.ElementId == excludeElementId.Value)
+                    continue;
+                        
+                // Check vertical segment (leader end to elbow)
+                if (LineSegmentsIntersectWithMargin(leaderEndX, leaderEndY, elbowX, elbowY,
+                                                     seg.X1, seg.Y1, seg.X2, seg.Y2, annotationMargin))
+                    return true;
+                        
+                // Check horizontal segment (elbow to head)
+                if (LineSegmentsIntersectWithMargin(elbowX, elbowY, headX, headY,
+                                                     seg.X1, seg.Y1, seg.X2, seg.Y2, annotationMargin))
+                    return true;
             }
                     
             // Check against occupied areas (other annotations)
@@ -482,6 +523,180 @@ namespace Annotatix.Module.Core
         }
         
         /// <summary>
+        /// Result of a collision check with details about what caused the collision
+        /// </summary>
+        public class CollisionDetails
+        {
+            public bool HasCollision { get; set; }
+            public List<long> CollidingElementIds { get; set; } = new List<long>();
+            public List<string> CollisionTypes { get; set; } = new List<string>(); // "occupied_area", "model_segment"
+            
+            public string ToSummaryString()
+            {
+                if (!HasCollision) return "no collision";
+                var elemIds = string.Join(", ", CollidingElementIds.Distinct());
+                var types = string.Join(", ", CollisionTypes.Distinct());
+                return $"collision with [{elemIds}] ({types})";
+            }
+        }
+        
+        /// <summary>
+        /// Check if a bounding box collides with other annotations or model elements,
+        /// returning detailed information about what was hit.
+        /// For 3D views: set checkModelElements=false because header boxes naturally overlap
+        /// model element projections in 3D - only check annotation-to-annotation collisions.
+        /// </summary>
+        public CollisionDetails GetHeaderCollisionDetails(BBox2D bbox, bool checkModelElements = true)
+        {
+            var details = new CollisionDetails();
+            
+            // Check against occupied areas (other annotations)
+            for (int i = 0; i < _occupiedAreas.Count; i++)
+            {
+                if (bbox.Intersects(_occupiedAreas[i]))
+                {
+                    details.HasCollision = true;
+                    details.CollisionTypes.Add("occupied_area");
+                    // Occupied areas don't have element IDs, use index
+                    details.CollidingElementIds.Add(-1 - i); // Negative to distinguish from real IDs
+                }
+            }
+            
+            // Always check annotation leader lines (registered from placed annotations)
+            // This must be done even in 3D views to prevent annotations from overlapping each other.
+            double annotationLineMargin = 0.01;
+            foreach (var seg in _annotationLineSegments)
+            {
+                if (BBoxIntersectsLine(bbox, seg, annotationLineMargin))
+                {
+                    details.HasCollision = true;
+                    details.CollisionTypes.Add("annotation_segment");
+                    details.CollidingElementIds.Add(seg.ElementId);
+                }
+            }
+            
+            // Only check model element line segments in 2D views.
+            // In 3D views, header boxes naturally overlap model element projections
+            // (ducts, pipes, etc.) - this is expected and not a collision.
+            if (checkModelElements)
+            {
+                double margin = 0.01;
+                foreach (var seg in _modelLineSegments)
+                {
+                    if (BBoxIntersectsLine(bbox, seg, margin))
+                    {
+                        details.HasCollision = true;
+                        details.CollisionTypes.Add("model_segment");
+                        details.CollidingElementIds.Add(seg.ElementId);
+                    }
+                }
+            }
+            
+            return details;
+        }
+        
+        /// <summary>
+        /// Check if an L-shaped leader line collides with any elements,
+        /// returning detailed information about what was hit.
+        /// For 3D views: set checkModelElements=false because leader lines naturally cross
+        /// model element projections in 3D - only check annotation-to-annotation collisions.
+        /// </summary>
+        public CollisionDetails GetLeaderCollisionDetails(double leaderEndX, double leaderEndY,
+                                        double elbowX, double elbowY,
+                                        double headX, double headY,
+                                        long? excludeElementId = null, bool checkModelElements = true)
+        {
+            var details = new CollisionDetails();
+            double elementMargin = 0.02;
+            double annotationMargin = 0.01;
+            
+            // Only check model element line segments in 2D views.
+            // In 3D views, leader lines naturally cross model element projections
+            // (ducts, pipes, etc.) - this is expected and not a collision.
+            if (checkModelElements)
+            {
+                foreach (var seg in _modelLineSegments)
+                {
+                    if (excludeElementId.HasValue && seg.ElementId == excludeElementId.Value)
+                        continue;
+                            
+                    // Check vertical segment (leader end to elbow)
+                    if (LineSegmentsIntersectWithMargin(leaderEndX, leaderEndY, elbowX, elbowY,
+                                                         seg.X1, seg.Y1, seg.X2, seg.Y2, elementMargin))
+                    {
+                        details.HasCollision = true;
+                        details.CollisionTypes.Add("leader_vs_model_segment");
+                        details.CollidingElementIds.Add(seg.ElementId);
+                        continue; // Don't double-count same element
+                    }
+                            
+                    // Check horizontal segment (elbow to head)
+                    if (LineSegmentsIntersectWithMargin(elbowX, elbowY, headX, headY,
+                                                         seg.X1, seg.Y1, seg.X2, seg.Y2, elementMargin))
+                    {
+                        details.HasCollision = true;
+                        details.CollisionTypes.Add("leader_vs_model_segment");
+                        details.CollidingElementIds.Add(seg.ElementId);
+                    }
+                }
+            }
+            
+            // Always check annotation leader lines (registered from placed annotations)
+            // This must be done even in 3D views to prevent annotations from overlapping each other.
+            foreach (var seg in _annotationLineSegments)
+            {
+                if (excludeElementId.HasValue && seg.ElementId == excludeElementId.Value)
+                    continue;
+                        
+                // Check vertical segment (leader end to elbow)
+                if (LineSegmentsIntersectWithMargin(leaderEndX, leaderEndY, elbowX, elbowY,
+                                                     seg.X1, seg.Y1, seg.X2, seg.Y2, annotationMargin))
+                {
+                    details.HasCollision = true;
+                    details.CollisionTypes.Add("leader_vs_annotation_segment");
+                    details.CollidingElementIds.Add(seg.ElementId);
+                    continue;
+                }
+                        
+                // Check horizontal segment (elbow to head)
+                if (LineSegmentsIntersectWithMargin(elbowX, elbowY, headX, headY,
+                                                     seg.X1, seg.Y1, seg.X2, seg.Y2, annotationMargin))
+                {
+                    details.HasCollision = true;
+                    details.CollisionTypes.Add("leader_vs_annotation_segment");
+                    details.CollidingElementIds.Add(seg.ElementId);
+                }
+            }
+                
+            // Check against occupied areas (other annotations)
+            var verticalSegment = new LineSegment2D
+            {
+                X1 = leaderEndX, Y1 = leaderEndY,
+                X2 = elbowX, Y2 = elbowY
+            };
+            var horizontalSegment = new LineSegment2D
+            {
+                X1 = elbowX, Y1 = elbowY,
+                X2 = headX, Y2 = headY
+            };
+                
+            for (int i = 0; i < _occupiedAreas.Count; i++)
+            {
+                var expanded = _occupiedAreas[i].Expand(annotationMargin);
+                        
+                if (SegmentIntersectsBBox(verticalSegment, expanded) ||
+                    SegmentIntersectsBBox(horizontalSegment, expanded))
+                {
+                    details.HasCollision = true;
+                    details.CollisionTypes.Add("leader_vs_occupied_area");
+                    details.CollidingElementIds.Add(-1 - i);
+                }
+            }
+        
+            return details;
+        }
+        
+        /// <summary>
         /// Register an occupied area (placed annotation)
         /// </summary>
         public void AddOccupiedArea(BBox2D bbox)
@@ -502,7 +717,7 @@ namespace Annotatix.Module.Core
             long elementId)
         {
             // Vertical segment: LeaderEnd → Elbow
-            _lineSegments.Add(new LineSegment2D
+            _annotationLineSegments.Add(new LineSegment2D
             {
                 X1 = leaderEndX, Y1 = leaderEndY,
                 X2 = elbowX, Y2 = elbowY,
@@ -510,7 +725,7 @@ namespace Annotatix.Module.Core
             });
             
             // Horizontal segment: Elbow → Head (the shelf portion covered by the leader)
-            _lineSegments.Add(new LineSegment2D
+            _annotationLineSegments.Add(new LineSegment2D
             {
                 X1 = elbowX, Y1 = elbowY,
                 X2 = headX, Y2 = headY,
@@ -541,7 +756,8 @@ namespace Annotatix.Module.Core
         /// </summary>
         public void Clear()
         {
-            _lineSegments.Clear();
+            _modelLineSegments.Clear();
+            _annotationLineSegments.Clear();
             _occupiedAreas.Clear();
             _intersections.Clear();
         }

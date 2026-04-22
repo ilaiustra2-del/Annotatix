@@ -29,30 +29,42 @@ namespace Annotatix.Module.Core
     /// using the view scale, since annotations display at fixed paper size regardless of zoom.
     /// 
     /// Conversion formula: modelFeet = paperMm / 304.8 * viewScale
+    /// 
+    /// Width = actual shelf length (from tag family type name)
+    /// Height = calculated from character height and line count
+    ///   Single line: charHeightMm
+    ///   Double line: 2 * charHeightMm + lineGapMm
     /// </summary>
     public class AnnotationSizer
     {
         private readonly Document _document;
         private readonly View _view;
         
+        // Character height in mm for standard Revit annotation text
+        private const double CHAR_HEIGHT_MM = 2.5;
+        // Line gap in mm between text lines in multi-line tags
+        private const double LINE_GAP_MM = 1.5;
+        
         // Paper-space sizes in mm (what the annotation looks like on printed sheet)
         // These are independent of view scale - annotations always display at the same paper size
-        // Widths are the LONGEST LINE width (for multi-line tags, not the combined width)
-        // This is the text content width only (no padding - padding is added separately)
-        private readonly Dictionary<AnnotationType, (double WidthMm, double HeightMm)> _paperSpaceSizes = 
-            new Dictionary<AnnotationType, (double, double)>
+        // WidthMm = default shelf length for this annotation type
+        // HeightMm = text height (charHeight * lineCount + lineGap * (lineCount-1))
+        // LineCount: 2 for duct/air terminal tags (size+flow or name+flow), 1 for others
+        private readonly Dictionary<AnnotationType, (double ShelfLengthMm, double TextHeightMm, int LineCount)> _paperSpaceSizes = 
+            new Dictionary<AnnotationType, (double, double, int)>
         {
-            { AnnotationType.DuctRoundSizeFlow, (9, 6) },      // "ø100" (size line is usually longest)
-            { AnnotationType.DuctRectSizeFlow, (10, 6) },     // "200x100" (size line)
-            { AnnotationType.AirTerminalTypeFlow, (12, 6) },   // "Ecoline 2" (name line)
-            { AnnotationType.AirTerminalShortNameFlow, (10, 6) }, // Short name line
-            { AnnotationType.DuctAccessory, (10, 6) },        // "ДКК 200"
-            { AnnotationType.SpotDimension, (10, 8) },        // Elevation mark
-            { AnnotationType.EquipmentMark, (12, 6) }         // "Ecoline 2"
+            { AnnotationType.DuctRoundSizeFlow, (8, 2 * CHAR_HEIGHT_MM + LINE_GAP_MM, 2) },   // "ø100" / "L0" - 2 lines
+            { AnnotationType.DuctRectSizeFlow, (10, 2 * CHAR_HEIGHT_MM + LINE_GAP_MM, 2) },   // "200x100" / "L0" - 2 lines
+            { AnnotationType.AirTerminalTypeFlow, (12, 2 * CHAR_HEIGHT_MM + LINE_GAP_MM, 2) }, // "Ecoline 2" / "100" - 2 lines
+            { AnnotationType.AirTerminalShortNameFlow, (10, 2 * CHAR_HEIGHT_MM + LINE_GAP_MM, 2) }, // 2 lines
+            { AnnotationType.DuctAccessory, (10, CHAR_HEIGHT_MM, 1) },                         // "ДКК 200" - 1 line
+            { AnnotationType.SpotDimension, (10, CHAR_HEIGHT_MM, 1) },                         // Elevation mark - 1 line
+            { AnnotationType.EquipmentMark, (12, CHAR_HEIGHT_MM, 1) }                          // "Ecoline 2" - 1 line
         };
         
-        // Paper-space padding in mm (minimal clearance for collision detection)
-        private const double PADDING_PAPER_MM = 2.0;
+        // Paper-space padding in mm (clearance for collision detection)
+        // Reduced from 2mm to 1mm since edge-based bbox already correctly sizes the occupied area
+        private const double PADDING_PAPER_MM = 1.0;
         
         public AnnotationSizer(Document document, View view)
         {
@@ -78,29 +90,31 @@ namespace Annotatix.Module.Core
         /// <summary>
         /// Get default size for an annotation type, converted from paper-space mm to model-space feet.
         /// Conversion: modelFeet = paperMm / 304.8 * viewScale
+        /// Width = shelf length (actual underline length from tag family)
+        /// Height = text height (character height * line count + line gaps)
         /// </summary>
         public AnnotationSize GetDefaultSize(AnnotationType type)
         {
             double viewScale = _view?.Scale ?? 100;
             if (viewScale < 1) viewScale = 1;
             
-            double widthMm, heightMm;
+            double shelfLengthMm, textHeightMm;
             if (_paperSpaceSizes.TryGetValue(type, out var paperSize))
             {
-                widthMm = paperSize.WidthMm;
-                heightMm = paperSize.HeightMm;
+                shelfLengthMm = paperSize.ShelfLengthMm;
+                textHeightMm = paperSize.TextHeightMm;
             }
             else
             {
-                widthMm = 35;
-                heightMm = 8;
+                shelfLengthMm = 15;
+                textHeightMm = CHAR_HEIGHT_MM;
             }
             
             // Convert paper-space mm to model-space feet
             return new AnnotationSize
             {
-                Width = widthMm / 304.8 * viewScale,
-                Height = heightMm / 304.8 * viewScale,
+                Width = shelfLengthMm / 304.8 * viewScale,   // shelf length
+                Height = textHeightMm / 304.8 * viewScale,    // text height
                 Padding = PADDING_PAPER_MM / 304.8 * viewScale
             };
         }

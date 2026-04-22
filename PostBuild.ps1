@@ -11,15 +11,30 @@ Write-Host "========================================"
 
 # CRITICAL FIX: MSBuild mangles Cyrillic paths - always use script location
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-# Detect correct output folder - prefer R25 (Revit 2025) if it exists, otherwise Release
+
+# Detect correct output folder
+# Priority: use the directory with the MOST RECENT PluginsManager.dll
+# This avoids the NuGet cache problem where bin/R25 has stale DLLs
 $R25Dir = [System.IO.Path]::Combine($ProjectDir, "bin", "R25")
 $ReleaseDir = [System.IO.Path]::Combine($ProjectDir, "bin", "Release")
-if (Test-Path $R25Dir) {
-    $TargetDir = $R25Dir
-    Write-Host "Using R25 build output: $TargetDir"
-} elseif (Test-Path $ReleaseDir) {
-    $TargetDir = $ReleaseDir
-    Write-Host "Using Release build output: $TargetDir"
+$Net48Dir = [System.IO.Path]::Combine($ProjectDir, "bin", "Release", "net48")
+
+# Find the most recent build output by checking PluginsManager.dll timestamp
+$candidates = @()
+foreach ($dir in @($Net48Dir, $ReleaseDir, $R25Dir)) {
+    $testFile = [System.IO.Path]::Combine($dir, "PluginsManager.dll")
+    if (Test-Path $testFile) {
+        $ts = (Get-Item $testFile).LastWriteTime
+        $candidates += [PSCustomObject]@{ Dir = $dir; Timestamp = $ts }
+        Write-Host "Found build output: $dir (PluginsManager.dll last written: $ts)"
+    }
+}
+
+if ($candidates.Count -gt 0) {
+    # Sort by timestamp descending, pick the most recent
+    $best = $candidates | Sort-Object -Property Timestamp -Descending | Select-Object -First 1
+    $TargetDir = $best.Dir
+    Write-Host "Using MOST RECENT build output: $TargetDir (timestamp: $($best.Timestamp))"
 } else {
     $TargetDir = $ReleaseDir
     Write-Host "WARNING: No build output found, defaulting to: $TargetDir"
@@ -324,6 +339,67 @@ foreach ($RevitVer in $RevitVersions) {
 }
 
 # ── Summary ───────────────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "========================================"
+Write-Host "VERIFICATION: Checking DLL timestamps..."
+Write-Host "========================================"
+
+# Verify all module DLLs have the same (or very close) timestamp
+$moduleDlls = @(
+    "PluginsManager.dll",
+    "dwg2rvt.Module.dll",
+    "HVAC.Module.dll",
+    "FamilySync.Module.dll",
+    "AutoNumbering.Module.dll",
+    "ClashResolve.Module.dll",
+    "Tracer.Module.dll",
+    "Annotatix.Module.dll"
+)
+
+$latestTimestamp = [DateTime]::MinValue
+$staleDlls = @()
+
+foreach ($dll in $moduleDlls) {
+    $dllPath = [System.IO.Path]::Combine($TargetDir, $dll)
+    if (Test-Path $dllPath) {
+        $ts = (Get-Item $dllPath).LastWriteTime
+        if ($ts -gt $latestTimestamp) {
+            $latestTimestamp = $ts
+        }
+        Write-Host "  $dll : $ts"
+    } else {
+        Write-Host "  $dll : MISSING!"
+        $staleDlls += $dll
+    }
+}
+
+# Check if any DLL is more than 2 minutes older than the latest
+$warningThreshold = [TimeSpan]::FromMinutes(2)
+foreach ($dll in $moduleDlls) {
+    $dllPath = [System.IO.Path]::Combine($TargetDir, $dll)
+    if (Test-Path $dllPath) {
+        $ts = (Get-Item $dllPath).LastWriteTime
+        $age = $latestTimestamp - $ts
+        if ($age -gt $warningThreshold) {
+            $staleDlls += "$dll (age: {0:F1} min)" -f $age.TotalMinutes
+        }
+    }
+}
+
+if ($staleDlls.Count -gt 0) {
+    Write-Host ""
+    Write-Host "WARNING: Some DLLs may be stale (older than 2 min from newest):"
+    foreach ($stale in $staleDlls) {
+        Write-Host "  - $stale"
+    }
+    Write-Host "This usually means the build was not complete. Run:"
+    Write-Host "  dotnet build PostBuildTrigger.csproj --configuration Release"
+    Write-Host "to rebuild ALL modules before deploying."
+} else {
+    Write-Host ""
+    Write-Host "All DLLs are fresh! Build is consistent."
+}
+
 Write-Host ""
 Write-Host "========================================"
 Write-Host "MANUAL DEPLOYMENT MODE"

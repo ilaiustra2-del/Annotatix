@@ -164,6 +164,25 @@ namespace Annotatix.Module.Commands
                     DebugLogger.Log($"[ANNOTATE-DUCTWORK] Failed to annotate element {failure.ElementId}: {failure.FailureReason}");
                 }
                 
+                // Export structured CSV data for analysis
+                try
+                {
+                    string logsDir = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                        "Autodesk", "Revit", "Addins", "2025",
+                        "annotatix_dependencies", "logs");
+                    
+                    AnnotationCsvExporter.Export(
+                        snapshot,
+                        placementService.PlacementRecords,
+                        placementService.IterationRecords,
+                        logsDir);
+                }
+                catch (Exception csvEx)
+                {
+                    DebugLogger.Log($"[ANNOTATE-DUCTWORK] CSV export error: {csvEx.Message}");
+                }
+                
                 // Show result to user
                 string message2 = placed > 0 
                     ? $"Успешно размещено аннотаций: {placed}\nОшибок: {failed}"

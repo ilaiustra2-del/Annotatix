@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Mechanical;
+using Autodesk.Revit.DB.Plumbing;
 using PluginsManager.Core;
 
 namespace Annotatix.Module.Core
@@ -79,6 +80,15 @@ namespace Annotatix.Module.Core
         private readonly PlacementConfig _config;
         private readonly TagTypeManager _tagTypeManager;
         
+        // CSV export data collectors
+        private readonly List<AnnotationPlacementRecord> _placementRecords = new List<AnnotationPlacementRecord>();
+        private readonly List<PlacementIterationRecord> _iterationRecords = new List<PlacementIterationRecord>();
+        
+        /// <summary>Get placement summary records for CSV export</summary>
+        public List<AnnotationPlacementRecord> PlacementRecords => _placementRecords;
+        /// <summary>Get iteration detail records for CSV export</summary>
+        public List<PlacementIterationRecord> IterationRecords => _iterationRecords;
+        
         public GreedyPlacementService(
             Document document, 
             View view, 
@@ -115,6 +125,105 @@ namespace Annotatix.Module.Core
         }
         
         /// <summary>
+        /// Compute the occupied bounding box for a placed annotation in 3D view.
+        /// TagHeadPosition is at the shelf EDGE - bbox extends from there outward.
+        /// Uses actual shelf length from tag type name for accurate width.
+        /// Uses AnnotationSizer height (based on character height and line count) for height.
+        /// </summary>
+        private BBox2D ComputeOccupiedBbox3D(XYZ headPos3D, string tagName, AnnotationPosition position, AnnotationPlan plan)
+        {
+            try
+            {
+                var headView = ConvertModelToViewCoordinates(headPos3D);
+                
+                // Get actual shelf length from the tag type name
+                double? actualShelfMm = TagTypeManager.GetShelfLengthFromTypeNamePublic(tagName);
+                double currentViewScale = _view.Scale;
+                if (currentViewScale < 1) currentViewScale = 1;
+                
+                double shelfFeet, textHeightFeet, paddingFeet;
+                if (actualShelfMm.HasValue && actualShelfMm.Value > 0)
+                {
+                    shelfFeet = actualShelfMm.Value / 304.8 * currentViewScale;
+                    textHeightFeet = _sizes.TryGetValue(plan, out var planSz) ? planSz.Height : 0.05;
+                    paddingFeet = _sizes.TryGetValue(plan, out var planSzPad) ? planSzPad.Padding : 0.05;
+                }
+                else
+                {
+                    shelfFeet = _sizes.TryGetValue(plan, out var planSizeW) ? planSizeW.Width : 0.15;
+                    textHeightFeet = _sizes.TryGetValue(plan, out var planSizeH) ? planSizeH.Height : 0.05;
+                    paddingFeet = _sizes.TryGetValue(plan, out var planSizeP) ? planSizeP.Padding : 0.05;
+                }
+                
+                // Convert shelf width and text height to view coordinates
+                double viewShelfWidth, viewTextHeight, viewPad;
+                try
+                {
+                    var headEdgeView = ConvertModelToViewCoordinates(headPos3D);
+                    var headRightView = ConvertModelToViewCoordinates(new XYZ(headPos3D.X + shelfFeet, headPos3D.Y, headPos3D.Z));
+                    var headUpView = ConvertModelToViewCoordinates(new XYZ(headPos3D.X, headPos3D.Y + textHeightFeet, headPos3D.Z));
+                    var padView = ConvertModelToViewCoordinates(new XYZ(headPos3D.X + paddingFeet, headPos3D.Y, headPos3D.Z));
+                    viewShelfWidth = Math.Abs(headRightView.X - headEdgeView.X);
+                    viewTextHeight = Math.Abs(headUpView.Y - headEdgeView.Y);
+                    viewPad = Math.Abs(padView.X - headEdgeView.X);
+                    if (viewShelfWidth < 0.02) viewShelfWidth = 0.02;
+                    if (viewTextHeight < 0.02) viewTextHeight = 0.02;
+                    if (viewPad < 0.005) viewPad = 0.005;
+                }
+                catch
+                {
+                    viewShelfWidth = 0.02;
+                    viewTextHeight = 0.02;
+                    viewPad = 0.005;
+                }
+                
+                // Build bbox: headView is at shelf TIP (far end from leader connection)
+                // Shelf extends from headView TOWARD the element by viewShelfWidth
+                bool isRight = position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight || position == AnnotationPosition.HorizontalRight;
+                bool isTop = position == AnnotationPosition.TopLeft || position == AnnotationPosition.TopRight;
+                bool isBottom = position == AnnotationPosition.BottomLeft || position == AnnotationPosition.BottomRight;
+                bool isHorizontal = position == AnnotationPosition.HorizontalLeft || position == AnnotationPosition.HorizontalRight;
+                
+                var bbox = new BBox2D();
+                
+                if (isRight)
+                {
+                    // Head is at right tip, shelf extends LEFT toward element
+                    bbox.MinX = headView.X - viewShelfWidth - viewPad;
+                    bbox.MaxX = headView.X + viewPad;
+                }
+                else // Left
+                {
+                    // Head is at left tip, shelf extends RIGHT toward element
+                    bbox.MinX = headView.X - viewPad;
+                    bbox.MaxX = headView.X + viewShelfWidth + viewPad;
+                }
+                
+                if (isTop)
+                {
+                    bbox.MinY = headView.Y - viewPad;
+                    bbox.MaxY = headView.Y + viewTextHeight + viewPad;
+                }
+                else if (isBottom)
+                {
+                    bbox.MinY = headView.Y - viewTextHeight - viewPad;
+                    bbox.MaxY = headView.Y + viewPad;
+                }
+                else // Horizontal
+                {
+                    bbox.MinY = headView.Y - viewTextHeight / 2 - viewPad;
+                    bbox.MaxY = headView.Y + viewTextHeight / 2 + viewPad;
+                }
+                
+                return bbox;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+        
+        /// <summary>
         /// Place all annotations greedily, avoiding collisions.
         /// For nearby same-type elements (Air Terminals, Duct Accessories),
         /// creates ONE annotation with multiple leaders (Add Basis feature).
@@ -122,6 +231,7 @@ namespace Annotatix.Module.Core
         public List<PlacementResult> PlaceAll(List<AnnotationPlan> plans)
         {
             var results = new List<PlacementResult>();
+            int annotationIndex = 0; // Global annotation counter for logging
             
             // Find groups of nearby same-type elements that should share one annotation
             var groupedElementIds = new HashSet<long>();
@@ -136,39 +246,59 @@ namespace Annotatix.Module.Core
             // First, process groups (create one annotation per group with AddReferences)
             foreach (var group in groups)
             {
-                var primaryPlan = group.PrimaryPlan;
-                var additionalPlans = group.AdditionalPlans;
+                annotationIndex++;
+                
+                // Try all elements in the group as primary until one succeeds
+                // The extreme element is already set as primary by FindNearbySameTypeGroups
+                var allGroupPlans = new List<AnnotationPlan> { group.PrimaryPlan };
+                allGroupPlans.AddRange(group.AdditionalPlans);
                 
                 // Mark additional elements as grouped (they won't get individual annotations)
-                foreach (var additionalPlan in additionalPlans)
+                foreach (var additionalPlan in group.AdditionalPlans)
                 {
                     groupedElementIds.Add(additionalPlan.ElementId);
                 }
                 
-                // Place annotation for the primary element
-                var result = PlaceSingle(primaryPlan);
+                PlacementResult groupResult = null;
+                AnnotationPlan successfulPrimary = null;
                 
-                // If primary placement failed, ungroup - let additional elements get individual annotations
-                if (!result.Success || result.CreatedTag == null)
+                for (int tryIdx = 0; tryIdx < allGroupPlans.Count; tryIdx++)
                 {
-                    DebugLogger.Log($"[GREEDY-PLACEMENT] Primary element {primaryPlan.ElementId} placement failed, ungrouping {additionalPlans.Count} additional elements");
-                    // Remove additional elements from grouped set so they can be processed individually
-                    foreach (var additionalPlan in additionalPlans)
+                    var primaryPlan = allGroupPlans[tryIdx];
+                    var result = PlaceSingle(primaryPlan, annotationIndex);
+                    
+                    if (result.Success && result.CreatedTag != null)
                     {
-                        groupedElementIds.Remove(additionalPlan.ElementId);
+                        groupResult = result;
+                        successfulPrimary = primaryPlan;
+                        break;
                     }
-                    results.Add(result);
+                    
+                    DebugLogger.Log($"[GREEDY-PLACEMENT] Primary element {primaryPlan.ElementId} placement failed (attempt {tryIdx + 1}/{allGroupPlans.Count})");
+                }
+                
+                // If all attempts failed, ungroup - let all elements get individual annotations
+                if (groupResult == null || !groupResult.Success || groupResult.CreatedTag == null)
+                {
+                    DebugLogger.Log($"[GREEDY-PLACEMENT] All group elements failed, ungrouping {allGroupPlans.Count} elements");
+                    foreach (var plan in allGroupPlans)
+                    {
+                        groupedElementIds.Remove(plan.ElementId);
+                    }
+                    if (groupResult != null) results.Add(groupResult);
                     continue;
                 }
                 
                 // Success - add additional references to the same tag
                 {
-                    var tag = result.CreatedTag;
+                    var tag = groupResult.CreatedTag;
                     bool addRefsSuccess = false;
+                    // Add all OTHER group elements as additional references (excluding the successful primary)
+                    var additionalPlansForRefs = allGroupPlans.Where(p => p.ElementId != successfulPrimary.ElementId).ToList();
                     try
                     {
                         var additionalRefs = new List<Reference>();
-                        foreach (var additionalPlan in additionalPlans)
+                        foreach (var additionalPlan in additionalPlansForRefs)
                         {
                             var additionalElement = _document.GetElement(new ElementId(additionalPlan.ElementId));
                             if (additionalElement != null)
@@ -203,7 +333,7 @@ namespace Annotatix.Module.Core
                                             
                                             // Set elbow at same Y as head but X at leader end
                                             var headPos = tag.TagHeadPosition;
-                                            XYZ elbowPos = CalculateElbowPosition(refLocation, headPos, result.Position, result.ElbowHeight);
+                                            XYZ elbowPos = CalculateElbowPosition(refLocation, headPos, groupResult.Position, groupResult.ElbowHeight);
                                             tag.SetLeaderElbow(taggedRef, elbowPos);
                                         }
                                     }
@@ -217,7 +347,7 @@ namespace Annotatix.Module.Core
                             // Re-set TagHeadPosition after all leader operations
                             try
                             {
-                                tag.TagHeadPosition = result.CreatedTag.TagHeadPosition; // maintain original head position
+                                tag.TagHeadPosition = groupResult.CreatedTag.TagHeadPosition; // maintain original head position
                             }
                             catch { }
                             
@@ -233,57 +363,20 @@ namespace Annotatix.Module.Core
                     // If AddReferences failed, ungroup so additional elements get individual annotations
                     if (!addRefsSuccess)
                     {
-                        groupedElementIds.ExceptWith(additionalPlans.Select(p => p.ElementId));
+                        groupedElementIds.ExceptWith(additionalPlansForRefs.Select(p => p.ElementId));
                     }
                     
                     // Register occupied area AND annotation leader lines
                     if (_view is View3D)
                     {
                         // 3D view: register occupied area in VIEW coordinates
-                        // Use actual shelf length from tag type name for accurate occupied area
+                        // TagHeadPosition is at shelf EDGE - bbox extends from there outward
                         var headPos3D = tag.TagHeadPosition;
                         if (headPos3D != null)
                         {
-                            var headView = ConvertModelToViewCoordinates(headPos3D);
-                            
-                            // Get actual shelf length from the tag type name (e.g., "(16)" -> 16mm)
-                            double? actualShelfMm = TagTypeManager.GetShelfLengthFromTypeNamePublic(tag.Name);
-                            double currentViewScale = _view.Scale;
-                            if (currentViewScale < 1) currentViewScale = 1;
-                            double annWidth, annHeight;
-                            if (actualShelfMm.HasValue && actualShelfMm.Value > 0)
-                            {
-                                // Use actual shelf length + padding for occupied area
-                                double shelfFeet = actualShelfMm.Value / 304.8 * currentViewScale;
-                                double paddingFeet = _sizes.TryGetValue(primaryPlan, out var planSz) ? planSz.Padding : 0.05;
-                                annWidth = shelfFeet + paddingFeet * 2; // Width + padding for collision detection
-                                annHeight = _sizes.TryGetValue(primaryPlan, out planSz) ? planSz.TotalHeight : 0.05;
-                            }
-                            else
-                            {
-                                // Fallback to estimated size
-                                annWidth = _sizes.TryGetValue(primaryPlan, out var planSize) ? planSize.TotalWidth : 0.15;
-                                annHeight = _sizes.TryGetValue(primaryPlan, out planSize) ? planSize.TotalHeight : 0.05;
-                            }
-                            
-                            double vw = annWidth / 2;
-                            double vh = annHeight / 2;
-                            // Project to get actual view-space size
-                            try
-                            {
-                                var headRightView = ConvertModelToViewCoordinates(new XYZ(headPos3D.X + annWidth / 2, headPos3D.Y, headPos3D.Z));
-                                var headUpView = ConvertModelToViewCoordinates(new XYZ(headPos3D.X, headPos3D.Y + annHeight / 2, headPos3D.Z));
-                                vw = Math.Abs(headRightView.X - headView.X);
-                                vh = Math.Abs(headUpView.Y - headView.Y);
-                            }
-                            catch { }
-                            _collisionDetector.AddOccupiedArea(new BBox2D
-                            {
-                                MinX = headView.X - vw,
-                                MaxX = headView.X + vw,
-                                MinY = headView.Y - vh,
-                                MaxY = headView.Y + vh
-                            });
+                            var occupiedBbox = ComputeOccupiedBbox3D(headPos3D, tag.Name, groupResult.Position, successfulPrimary);
+                            if (occupiedBbox != null)
+                                _collisionDetector.AddOccupiedArea(occupiedBbox);
                         }
                     }
                     else
@@ -296,24 +389,24 @@ namespace Annotatix.Module.Core
                     }
                     
                     // Register annotation leader lines for future collision checks
-                    RegisterAnnotationLinesForCollision(tag, primaryPlan.ElementId);
+                    RegisterAnnotationLinesForCollision(tag, successfulPrimary.ElementId);
                 }
                 
-                results.Add(result);
+                results.Add(groupResult);
                 
-                // Add placeholder results for grouped elements
-                foreach (var additionalPlan in additionalPlans)
+                // Add placeholder results for grouped elements (excluding the successful primary)
+                foreach (var additionalPlan in allGroupPlans.Where(p => p.ElementId != successfulPrimary.ElementId))
                 {
                     results.Add(new PlacementResult
                     {
                         Success = true,
                         ElementId = additionalPlan.ElementId,
                         Plan = additionalPlan,
-                        Position = result.Position,
+                        Position = groupResult.Position,
                         AttachmentPoint = additionalPlan.AttachmentPoint,
-                        ElbowHeight = result.ElbowHeight,
-                        CreatedTag = result.CreatedTag,
-                        FailureReason = "Grouped with primary element " + primaryPlan.ElementId
+                        ElbowHeight = groupResult.ElbowHeight,
+                        CreatedTag = groupResult.CreatedTag,
+                        FailureReason = "Grouped with primary element " + successfulPrimary.ElementId
                     });
                 }
             }
@@ -329,7 +422,8 @@ namespace Annotatix.Module.Core
                 if (groups.Any(g => g.PrimaryPlan.ElementId == plan.ElementId))
                     continue;
                 
-                var result = PlaceSingle(plan);
+                annotationIndex++;
+                var result = PlaceSingle(plan, annotationIndex);
                 results.Add(result);
                 
                 // If successful, register occupied area AND annotation leader lines
@@ -338,47 +432,13 @@ namespace Annotatix.Module.Core
                     if (_view is View3D)
                     {
                         // 3D view: register occupied area in VIEW coordinates
-                        // Use actual shelf length from tag type name for accurate occupied area
+                        // TagHeadPosition is at shelf EDGE - bbox extends from there outward
                         var headPos3D = result.CreatedTag.TagHeadPosition;
                         if (headPos3D != null)
                         {
-                            var headView = ConvertModelToViewCoordinates(headPos3D);
-                            
-                            // Get actual shelf length from the tag type name (e.g., "(16)" -> 16mm)
-                            double? actualShelfMm = TagTypeManager.GetShelfLengthFromTypeNamePublic(result.CreatedTag.Name);
-                            double currentViewScale = _view.Scale;
-                            if (currentViewScale < 1) currentViewScale = 1;
-                            double annWidth, annHeight;
-                            if (actualShelfMm.HasValue && actualShelfMm.Value > 0)
-                            {
-                                double shelfFeet = actualShelfMm.Value / 304.8 * currentViewScale;
-                                double paddingFeet = _sizes.TryGetValue(plan, out var planSz) ? planSz.Padding : 0.05;
-                                annWidth = shelfFeet + paddingFeet * 2;
-                                annHeight = _sizes.TryGetValue(plan, out planSz) ? planSz.TotalHeight : 0.05;
-                            }
-                            else
-                            {
-                                annWidth = _sizes.TryGetValue(plan, out var planSize) ? planSize.TotalWidth : 0.15;
-                                annHeight = _sizes.TryGetValue(plan, out planSize) ? planSize.TotalHeight : 0.05;
-                            }
-                            
-                            double vw = annWidth / 2;
-                            double vh = annHeight / 2;
-                            try
-                            {
-                                var headRightView = ConvertModelToViewCoordinates(new XYZ(headPos3D.X + annWidth / 2, headPos3D.Y, headPos3D.Z));
-                                var headUpView = ConvertModelToViewCoordinates(new XYZ(headPos3D.X, headPos3D.Y + annHeight / 2, headPos3D.Z));
-                                vw = Math.Abs(headRightView.X - headView.X);
-                                vh = Math.Abs(headUpView.Y - headView.Y);
-                            }
-                            catch { }
-                            _collisionDetector.AddOccupiedArea(new BBox2D
-                            {
-                                MinX = headView.X - vw,
-                                MaxX = headView.X + vw,
-                                MinY = headView.Y - vh,
-                                MaxY = headView.Y + vh
-                            });
+                            var occupiedBbox = ComputeOccupiedBbox3D(headPos3D, result.CreatedTag.Name, result.Position, plan);
+                            if (occupiedBbox != null)
+                                _collisionDetector.AddOccupiedArea(occupiedBbox);
                         }
                     }
                     else
@@ -398,11 +458,12 @@ namespace Annotatix.Module.Core
             return results;
         }
         
-        private PlacementResult PlaceSingle(AnnotationPlan plan)
+        private PlacementResult PlaceSingle(AnnotationPlan plan, int annotationIndex)
         {
             var element = _document.GetElement(new ElementId(plan.ElementId));
             if (element == null)
             {
+                DebugLogger.Log($"[Аннотация {annotationIndex}]: Элемент не найден (id {plan.ElementId})");
                 return new PlacementResult
                 {
                     Success = false,
@@ -422,6 +483,7 @@ namespace Annotatix.Module.Core
             var location = GetElementLocation(element);
             if (location == null)
             {
+                DebugLogger.Log($"[Аннотация {annotationIndex}]: Не удалось определить положение элемента (id {plan.ElementId})");
                 return new PlacementResult
                 {
                     Success = false,
@@ -431,17 +493,101 @@ namespace Annotatix.Module.Core
                 };
             }
                 
+            // ═══════════════════════════════════════════════════════════════
+            // DETAILED PER-ANNOTATION LOGGING BLOCK
+            // ═══════════════════════════════════════════════════════════════
+            
+            // Element info
+            string elemCategory = element.Category?.Name ?? "?";
+            string elemFamily = "?";
+            string elemType = "?";
+            try
+            {
+                var elemTypeObj = _document.GetElement(element.GetTypeId());
+                if (elemTypeObj != null)
+                {
+                    elemFamily = (elemTypeObj as FamilySymbol)?.Family?.Name ?? elemTypeObj.Name;
+                    elemType = elemTypeObj.Name;
+                }
+            }
+            catch { }
+            
+            DebugLogger.Log("");
+            DebugLogger.Log($"[Аннотация {annotationIndex}]:");
+            DebugLogger.Log($"- Элемент аннотирования: (id {plan.ElementId}) {elemCategory} - {elemFamily} - {elemType}");
+            
+            // Element position in space (model + view coords)
+            var locationView = ConvertModelToViewCoordinates(location);
+            string positionDesc;
+            ElementOrientation orientation;
+            if (plan.Node != null && plan.Node.ViewStart != null && plan.Node.ViewEnd != null)
+            {
+                orientation = DetermineElementOrientationFromViewCoords(
+                    plan.Node.ViewStart.X, plan.Node.ViewStart.Y,
+                    plan.Node.ViewEnd.X, plan.Node.ViewEnd.Y);
+                
+                // Build position description like: \ (x1<x2), (y1>y2)
+                string arrow;
+                string coords;
+                double x1 = plan.Node.ViewStart.X, y1 = plan.Node.ViewStart.Y;
+                double x2 = plan.Node.ViewEnd.X, y2 = plan.Node.ViewEnd.Y;
+                switch (orientation)
+                {
+                    case ElementOrientation.DiagonalLeftHigher:
+                        arrow = "\\";  // DiagonalLeftHigher (slopes down-right)
+                        coords = $"(x1<x2), (y1>y2)";
+                        break;
+                    case ElementOrientation.DiagonalRightHigher:
+                        arrow = "//";  // DiagonalRightHigher (slopes up-right)
+                        coords = $"(x1<x2), (y1<y2)";
+                        break;
+                    case ElementOrientation.Horizontal:
+                        arrow = "--";  // Horizontal
+                        coords = $"(y1~=y2)";
+                        break;
+                    case ElementOrientation.Vertical:
+                        arrow = "||";  // Vertical
+                        coords = $"(x1~=x2)";
+                        break;
+                    default:
+                        arrow = "?";
+                        coords = "";
+                        break;
+                }
+                positionDesc = $"{arrow} {coords}";
+                
+                DebugLogger.Log($"  StartModelX\tStartModelY\tStartModelZ\tStartViewX\tStartViewY\tEndModelX\tEndModelY\tEndModelZ\tEndViewX\tEndViewY");
+                DebugLogger.Log($"  {location.X:F3}\t{location.Y:F3}\t{location.Z:F3}\t{locationView.X:F3}\t{locationView.Y:F3}\t{location.X:F3}\t{location.Y:F3}\t{location.Z:F3}\t{locationView.X:F3}\t{locationView.Y:F3}");
+            }
+            else
+            {
+                // For point elements (accessories, air terminals, equipment),
+                // try to inherit orientation from connected ducts in the system.
+                // These elements are connected to ducts whose orientation is already known.
+                orientation = DetermineOrientationFromConnectedDucts(plan);
+                if (orientation == ElementOrientation.Horizontal) // fallback if no connected duct found
+                {
+                    orientation = DetermineElementOrientation(element.get_BoundingBox(_view));
+                }
+                positionDesc = orientation.ToString();
+                DebugLogger.Log($"  Положение элемента: ({location.X:F3}, {location.Y:F3}, {location.Z:F3}), view=({locationView.X:F3}, {locationView.Y:F3}), orientation={orientation} (inherited from connected duct)");
+            }
+            
+            var orderedPositions = GetOptimalPositionOrderFromOrientation(plan.PreferredPositions, orientation);
+            string chosenConfig = PositionToRussianString(orderedPositions.FirstOrDefault());
+            DebugLogger.Log($"- Положение в пространстве: {positionDesc} - выбрана конфигурация аннотации {chosenConfig}");
+            
+            // Annotation family/type info
+            string annFamilyName = plan.FamilyName ?? "?";
+            string annTypeName = plan.TypeName ?? "?";
+            DebugLogger.Log($"- Выбранное семейство аннотации: {annFamilyName}");
+            DebugLogger.Log($"  Тип аннотации: {annTypeName}");
+            
             // Calculate optimal offsets based on element size and view scale
             double optimalHorizontalOffset = CalculateOptimalOffset(location, element);
             double optimalBaseElbowHeight = CalculateOptimalElbowHeight(location, element, 
                 plan.PreferredPositions.FirstOrDefault());
-                
-            // Get element bounding box for position determination
-            var elemBbox = element.get_BoundingBox(_view);
-                            
-            // Determine optimal position order based on element location in view
-            var orderedPositions = GetOptimalPositionOrder(plan.PreferredPositions, location, elemBbox);
-                
+            
             DebugLogger.Log($"[GREEDY-PLACEMENT] Element {plan.ElementId}: optimalHorizontalOffset={optimalHorizontalOffset:F2}, optimalBaseElbowHeight={optimalBaseElbowHeight:F2}");
                     
             // Per user's algorithm: for each position, try up to 5 height iterations
@@ -449,13 +595,16 @@ namespace Annotatix.Module.Core
             // For Top positions: increase height (move annotation further UP)
             // For Bottom positions: increase height (move annotation further DOWN)
             // For Horizontal positions: no height adjustment (just 1 attempt)
-            const int maxHeightIterations = 5;
+            const int maxHeightIterations = 8;
                     
             bool is3DView = _view is View3D;
-            // Use Width (text area only) for positioning, NOT TotalWidth (includes collision padding)
-            double shelfHalfWidth = size.Width / 2;
+            double viewScaleCollision = _view.Scale;
+            if (viewScaleCollision < 1) viewScaleCollision = 1;
+            double shelfGapViewCollision = optimalHorizontalOffset; // Use dynamic offset (not hardcoded 1mm)
                 
             // Try each position
+            int globalIteration = 0;
+            AnnotationPosition? lastShapePosition = null; // Track shape changes
             foreach (var position in orderedPositions)
             {
                 bool isTop = position == AnnotationPosition.TopLeft || position == AnnotationPosition.TopRight;
@@ -463,11 +612,28 @@ namespace Annotatix.Module.Core
                 bool isHorizontalPos = position == AnnotationPosition.HorizontalLeft || position == AnnotationPosition.HorizontalRight;
                 bool isLShaped = isTop || isBottom;
                         
+                // Detect shape change and log it
+                if (lastShapePosition != null)
+                {
+                    bool lastWasHorizontal = (lastShapePosition == AnnotationPosition.HorizontalLeft || lastShapePosition == AnnotationPosition.HorizontalRight);
+                    bool currentIsHorizontal = isHorizontalPos;
+                    if (lastWasHorizontal != currentIsHorizontal)
+                    {
+                        DebugLogger.Log($"--Смена формы аннотации -> {PositionToRussianString(position)}--");
+                    }
+                    else if (lastShapePosition != position)
+                    {
+                        DebugLogger.Log($"--Смена направления -> {PositionToRussianString(position)}--");
+                    }
+                }
+                lastShapePosition = position;
+                        
                 // Number of height iterations: 5 for L-shaped, 1 for horizontal
                 int iterations = isLShaped ? maxHeightIterations : 1;
                         
                 for (int iteration = 0; iteration < iterations; iteration++)
                 {
+                    globalIteration++;
                     double elbowHeight = optimalBaseElbowHeight + iteration * _config.ElbowHeightStep;
                     if (elbowHeight > _config.MaxElbowHeight)
                         break;
@@ -481,101 +647,241 @@ namespace Annotatix.Module.Core
                                                     
                     bool headerCollides = false;
                     bool leaderCollides = false;
+                    CollisionDetector.CollisionDetails headerDetails = null;
+                    CollisionDetector.CollisionDetails leaderDetails = null;
                                         
                     if (is3DView)
                     {
                         // 3D view: convert all coordinates to view space for collision detection
-                        var locationView = ConvertModelToViewCoordinates(location);
+                        var locationViewCol = ConvertModelToViewCoordinates(location);
                                                         
                         (double headViewX, double headViewY) headPosView;
                         double elbowViewX, elbowViewY;
                                                         
                         if (isHorizontalPos)
                         {
-                            // Horizontal: head Y = leader end Y
-                            double totalOffsetX = optimalHorizontalOffset + shelfHalfWidth;
                             double headViewXPos;
                             if (position == AnnotationPosition.HorizontalLeft)
-                            {
-                                headViewXPos = locationView.X - totalOffsetX;
-                            }
+                                headViewXPos = locationViewCol.X - shelfGapViewCollision;
                             else
-                            {
-                                headViewXPos = locationView.X + totalOffsetX;
-                            }
-                            headPosView = (headViewXPos, locationView.Y);
-                            // Elbow for horizontal: midpoint
-                            elbowViewX = (locationView.X + headPosView.headViewX) / 2.0;
-                            elbowViewY = locationView.Y;
+                                headViewXPos = locationViewCol.X + shelfGapViewCollision;
+                            headPosView = (headViewXPos, locationViewCol.Y);
+                            elbowViewX = (locationViewCol.X + headPosView.headViewX) / 2.0;
+                            elbowViewY = locationViewCol.Y;
                         }
                         else
                         {
-                            // L-shaped: head position from model-space calculation projected to view
                             headPosView = ConvertModelToViewCoordinates(new XYZ(headPos.X, headPos.Y, location.Z));
-                            // Elbow for L-shaped: at leader end X, head Y
-                            elbowViewX = locationView.X; // Same X as leader end (vertical leader)
-                            elbowViewY = headPosView.headViewY; // Same Y as head (horizontal segment)
+                            elbowViewX = locationViewCol.X;
+                            elbowViewY = headPosView.headViewY;
                         }
                                                         
                         // Create bbox in view coordinates
-                        // IMPORTANT: size.TotalWidth is in MODEL space (feet), but headPosView is in VIEW space.
-                        // We must convert the size to view space by projecting two points and measuring the difference.
-                        double viewHalfWidth, viewHalfHeight;
+                        double viewShelfWidth, viewTextHeight;
                         {
-                            // Project head center and head+offset to get view-space size
-                            var headCenterView = ConvertModelToViewCoordinates(new XYZ(headPos.X, headPos.Y, location.Z));
-                            var headRightView = ConvertModelToViewCoordinates(new XYZ(headPos.X + size.TotalWidth / 2, headPos.Y, location.Z));
-                            var headUpView = ConvertModelToViewCoordinates(new XYZ(headPos.X, headPos.Y + size.TotalHeight / 2, location.Z));
-                            viewHalfWidth = Math.Abs(headRightView.X - headCenterView.X);
-                            viewHalfHeight = Math.Abs(headUpView.Y - headCenterView.Y);
-                            // Ensure minimum visible size (at least 0.02 view units = ~6mm)
-                            if (viewHalfWidth < 0.02) viewHalfWidth = 0.02;
-                            if (viewHalfHeight < 0.02) viewHalfHeight = 0.02;
+                            var headEdgeView = ConvertModelToViewCoordinates(new XYZ(headPos.X, headPos.Y, location.Z));
+                            var headRightView = ConvertModelToViewCoordinates(new XYZ(headPos.X + size.Width, headPos.Y, location.Z));
+                            var headUpView = ConvertModelToViewCoordinates(new XYZ(headPos.X, headPos.Y + size.Height, location.Z));
+                            viewShelfWidth = Math.Abs(headRightView.X - headEdgeView.X);
+                            viewTextHeight = Math.Abs(headUpView.Y - headEdgeView.Y);
+                            if (viewShelfWidth < 0.02) viewShelfWidth = 0.02;
+                            if (viewTextHeight < 0.02) viewTextHeight = 0.02;
                         }
                         
-                        var candidateBboxView = new BBox2D
+                        double viewPad;
                         {
-                            MinX = headPosView.headViewX - viewHalfWidth,
-                            MaxX = headPosView.headViewX + viewHalfWidth,
-                            MinY = headPosView.headViewY - viewHalfHeight,
-                            MaxY = headPosView.headViewY + viewHalfHeight
-                        };
+                            var padView = ConvertModelToViewCoordinates(new XYZ(headPos.X + size.Padding, headPos.Y, location.Z));
+                            viewPad = Math.Abs(padView.X - ConvertModelToViewCoordinates(new XYZ(headPos.X, headPos.Y, location.Z)).X);
+                            if (viewPad < 0.005) viewPad = 0.005;
+                        }
+                        
+                        var candidateBboxView = new BBox2D();
+                        bool isRightPos = position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight || position == AnnotationPosition.HorizontalRight;
+                        bool isLeftPos = position == AnnotationPosition.TopLeft || position == AnnotationPosition.BottomLeft || position == AnnotationPosition.HorizontalLeft;
+                        
+                        if (isRightPos)
+                        {
+                            candidateBboxView.MinX = headPosView.headViewX - viewPad;
+                            candidateBboxView.MaxX = headPosView.headViewX + viewShelfWidth + viewPad;
+                        }
+                        else
+                        {
+                            candidateBboxView.MinX = headPosView.headViewX - viewShelfWidth - viewPad;
+                            candidateBboxView.MaxX = headPosView.headViewX + viewPad;
+                        }
+                        
+                        if (isTop)
+                        {
+                            candidateBboxView.MinY = headPosView.headViewY - viewPad;
+                            candidateBboxView.MaxY = headPosView.headViewY + viewTextHeight + viewPad;
+                        }
+                        else if (isBottom)
+                        {
+                            candidateBboxView.MinY = headPosView.headViewY - viewTextHeight - viewPad;
+                            candidateBboxView.MaxY = headPosView.headViewY + viewPad;
+                        }
+                        else
+                        {
+                            candidateBboxView.MinY = headPosView.headViewY - viewTextHeight / 2 - viewPad;
+                            candidateBboxView.MaxY = headPosView.headViewY + viewTextHeight / 2 + viewPad;
+                        }
                                                         
-                        headerCollides = _collisionDetector.HasHeaderCollision(candidateBboxView);
-                        // 3D view: skip model element line segment checks for leader collision.
-                        // In 3D views, leader lines naturally cross model element projections
-                        // (ducts, pipes) - only check annotation-to-annotation collisions.
-                        leaderCollides = _collisionDetector.HasLeaderCollision(
-                            locationView.X, locationView.Y,
+                        // Use detailed collision detection for logging
+                        // 3D view: don't check model elements (ducts/pipes) because leader/header
+                        // lines naturally cross their projections in 3D - only check annotation-to-annotation
+                        headerDetails = _collisionDetector.GetHeaderCollisionDetails(candidateBboxView, checkModelElements: false);
+                        leaderDetails = _collisionDetector.GetLeaderCollisionDetails(
+                            locationViewCol.X, locationViewCol.Y,
                             elbowViewX, elbowViewY,
                             headPosView.headViewX, headPosView.headViewY,
                             plan.ElementId, checkModelElements: false);
-                                                        
-                        DebugLogger.Log($"[GREEDY-PLACEMENT] 3D collision check: pos={position}, iter={iteration}, locationView=({locationView.X:F2}, {locationView.Y:F2}), headView=({headPosView.headViewX:F2}, {headPosView.headViewY:F2}), elbowView=({elbowViewX:F2}, {elbowViewY:F2})");
+                        headerCollides = headerDetails.HasCollision;
+                        leaderCollides = leaderDetails.HasCollision;
                     }
                     else
                     {
-                        // 2D view: collision detection works with model coordinates directly
-                        headerCollides = _collisionDetector.HasHeaderCollision(candidateBbox);
-                        leaderCollides = _collisionDetector.HasLeaderCollision(
+                        // 2D view: collision detection with details
+                        headerDetails = _collisionDetector.GetHeaderCollisionDetails(candidateBbox);
+                        leaderDetails = _collisionDetector.GetLeaderCollisionDetails(
                             location.X, location.Y,
                             elbowPos.X, elbowPos.Y,
                             headPos.X, headPos.Y,
                             plan.ElementId);
+                        headerCollides = headerDetails.HasCollision;
+                        leaderCollides = leaderDetails.HasCollision;
                     }
-                                                    
+                    
+                    // Detailed iteration logging
+                    string posName = PositionToRussianString(position);
+                    double iterLeaderEndViewX, iterLeaderEndViewY, iterElbowViewX, iterElbowViewY, iterHeaderViewX, iterHeaderViewY;
+                    if (is3DView)
+                    {
+                        var lv = ConvertModelToViewCoordinates(location);
+                        var hv = ConvertModelToViewCoordinates(new XYZ(headPos.X, headPos.Y, location.Z));
+                        iterLeaderEndViewX = lv.X; iterLeaderEndViewY = lv.Y;
+                        iterHeaderViewX = hv.X; iterHeaderViewY = hv.Y;
+                        iterElbowViewX = lv.X; // elbow view X
+                        iterElbowViewY = hv.Y; // elbow view Y
+                        DebugLogger.Log($"[Итерация подбора положения {globalIteration}]");
+                        DebugLogger.Log($"Форма аннотации: {posName}; LeaderEndViewX,Y = {lv.X:F2}, {lv.Y:F2}; ElbowViewX,Y = {iterElbowViewX:F2}, {iterElbowViewY:F2}; HeaderViewX,Y = {hv.X:F2}, {hv.Y:F2}");
+                    }
+                    else
+                    {
+                        iterLeaderEndViewX = location.X; iterLeaderEndViewY = location.Y;
+                        iterElbowViewX = elbowPos.X; iterElbowViewY = elbowPos.Y;
+                        iterHeaderViewX = headPos.X; iterHeaderViewY = headPos.Y;
+                        DebugLogger.Log($"[Итерация подбора положения {globalIteration}]");
+                        DebugLogger.Log($"Форма аннотации: {posName}; LeaderEndX,Y = {location.X:F2}, {location.Y:F2}; ElbowX,Y = {elbowPos.X:F2}, {elbowPos.Y:F2}; HeaderX,Y = {headPos.X:F2}, {headPos.Y:F2}");
+                    }
+                    
                     if (headerCollides || leaderCollides)
                     {
-                        DebugLogger.Log($"[GREEDY-PLACEMENT] Collision detected for element {plan.ElementId} at position {position}, iteration {iteration}: header={headerCollides}, leader={leaderCollides}");
+                        var allCollidingIds = new List<long>();
+                        if (headerDetails != null) allCollidingIds.AddRange(headerDetails.CollidingElementIds);
+                        if (leaderDetails != null) allCollidingIds.AddRange(leaderDetails.CollidingElementIds);
+                        var distinctIds = allCollidingIds.Where(id => id > 0).Distinct().ToList();
+                        string collisionSummary;
+                        if (distinctIds.Count > 0)
+                            collisionSummary = string.Join(", ", distinctIds);
+                        else
+                            collisionSummary = "occupied areas";
+                        
+                        string collisionTypes = "";
+                        if (headerCollides) collisionTypes += "header";
+                        if (leaderCollides) collisionTypes += (collisionTypes.Length > 0 ? "+" : "") + "leader";
+                        DebugLogger.Log($"  - найдены коллизии ({collisionTypes}): {collisionSummary}");
+                        
+                        // Record iteration for CSV export
+                        double elbowHeightMm = elbowHeight / _view.Scale * 304.8;
+                        _iterationRecords.Add(new PlacementIterationRecord
+                        {
+                            AnnotationIndex = annotationIndex,
+                            ElementId = plan.ElementId,
+                            GlobalIteration = globalIteration,
+                            PositionName = posName,
+                            LeaderEndViewX = iterLeaderEndViewX,
+                            LeaderEndViewY = iterLeaderEndViewY,
+                            ElbowViewX = iterElbowViewX,
+                            ElbowViewY = iterElbowViewY,
+                            HeaderViewX = iterHeaderViewX,
+                            HeaderViewY = iterHeaderViewY,
+                            ElbowHeightMm = elbowHeightMm,
+                            HeaderCollision = headerCollides,
+                            LeaderCollision = leaderCollides,
+                            CollidingElementIds = collisionSummary,
+                            CollisionTypes = collisionTypes,
+                            PlacementSucceeded = false
+                        });
                     }
                                                     
                     if (!headerCollides && !leaderCollides)
                     {
+                        DebugLogger.Log($"  - коллизий не обнаружено, создаем аннотацию");
+                        
+                        // Record successful iteration for CSV export
+                        double elbowHeightMmSuccess = elbowHeight / _view.Scale * 304.8;
+                        _iterationRecords.Add(new PlacementIterationRecord
+                        {
+                            AnnotationIndex = annotationIndex,
+                            ElementId = plan.ElementId,
+                            GlobalIteration = globalIteration,
+                            PositionName = posName,
+                            LeaderEndViewX = iterLeaderEndViewX,
+                            LeaderEndViewY = iterLeaderEndViewY,
+                            ElbowViewX = iterElbowViewX,
+                            ElbowViewY = iterElbowViewY,
+                            HeaderViewX = iterHeaderViewX,
+                            HeaderViewY = iterHeaderViewY,
+                            ElbowHeightMm = elbowHeightMmSuccess,
+                            HeaderCollision = false,
+                            LeaderCollision = false,
+                            CollidingElementIds = "",
+                            CollisionTypes = "",
+                            PlacementSucceeded = true
+                        });
+                        
                         // Try to create the actual annotation
                         var tag = CreateAnnotation(plan, element, location, position, elbowHeight, optimalHorizontalOffset);
                 
                         if (tag != null)
                         {
+                            // Log annotation content and shelf length
+                            string tagText = "";
+                            try { tagText = tag.TagText ?? ""; } catch { }
+                            double? shelfMm = TagTypeManager.GetShelfLengthFromTypeNamePublic(tag.Name);
+                            string shelfInfo = shelfMm.HasValue ? $"{shelfMm.Value:F0}" : "?";
+                            double sizeWidthMm = size.Width / _view.Scale * 304.8;
+                            DebugLogger.Log($"- Содержимое аннотации: {tagText}. Длина полки: {shelfInfo} мм (расчетная ширина: {sizeWidthMm:F1} мм). Создан тип: {tag.Name}");
+                            
+                            // Record placement summary for CSV export
+                            _placementRecords.Add(new AnnotationPlacementRecord
+                            {
+                                AnnotationIndex = annotationIndex,
+                                ElementId = plan.ElementId,
+                                ElementCategory = elemCategory,
+                                ElementFamily = elemFamily,
+                                ElementType = elemType,
+                                LocationModelX = location.X,
+                                LocationModelY = location.Y,
+                                LocationModelZ = location.Z,
+                                LocationViewX = locationView.X,
+                                LocationViewY = locationView.Y,
+                                OrientationSymbol = positionDesc.Split(' ')[0],
+                                OrientationDescription = positionDesc,
+                                AnnotationFamily = annFamilyName,
+                                AnnotationType = annTypeName,
+                                AnnotationContentType = plan.AnnotationType.ToString(),
+                                TagText = tagText,
+                                FinalTypeName = tag.Name,
+                                ShelfLengthMm = shelfMm ?? 0,
+                                CalculatedWidthMm = sizeWidthMm,
+                                Success = true,
+                                FinalPosition = posName,
+                                FinalElbowHeightMm = elbowHeightMmSuccess,
+                                TotalIterations = globalIteration,
+                                FailureReason = ""
+                            });
+                            
                             return new PlacementResult
                             {
                                 Success = true,
@@ -590,14 +896,65 @@ namespace Annotatix.Module.Core
                     }
                 }
             }
+            
+            DebugLogger.Log($"- НЕ УДАЛОСЬ разместить аннотацию: все позиции исчерпаны ({globalIteration} итераций)");
+            
+            // Record failed placement summary for CSV export
+            _placementRecords.Add(new AnnotationPlacementRecord
+            {
+                AnnotationIndex = annotationIndex,
+                ElementId = plan.ElementId,
+                ElementCategory = elemCategory,
+                ElementFamily = elemFamily,
+                ElementType = elemType,
+                LocationModelX = location.X,
+                LocationModelY = location.Y,
+                LocationModelZ = location.Z,
+                LocationViewX = locationView.X,
+                LocationViewY = locationView.Y,
+                OrientationSymbol = positionDesc.Split(' ')[0],
+                OrientationDescription = positionDesc,
+                AnnotationFamily = annFamilyName,
+                AnnotationType = annTypeName,
+                AnnotationContentType = plan.AnnotationType.ToString(),
+                TagText = "",
+                FinalTypeName = "",
+                ShelfLengthMm = 0,
+                CalculatedWidthMm = size.Width / _view.Scale * 304.8,
+                Success = false,
+                FinalPosition = "",
+                FinalElbowHeightMm = 0,
+                TotalIterations = globalIteration,
+                FailureReason = $"All positions exhausted ({globalIteration} iterations)"
+            });
                 
             return new PlacementResult
             {
                 Success = false,
                 ElementId = plan.ElementId,
                 Plan = plan,
-                FailureReason = "No valid position found after trying all options"
+                FailureReason = $"No valid position found after {globalIteration} iterations"
             };
+        }
+        
+        /// <summary>
+        /// Convert AnnotationPosition to Russian string for logging
+        /// </summary>
+        private static string PositionToRussianString(AnnotationPosition? position)
+        {
+            if (position == null) return "?";
+            switch (position.Value)
+            {
+                case AnnotationPosition.TopLeft: return "Влево вверх";
+                case AnnotationPosition.TopCenter: return "Вверх по центру";
+                case AnnotationPosition.TopRight: return "Вправо вверх";
+                case AnnotationPosition.BottomLeft: return "Влево вниз";
+                case AnnotationPosition.BottomCenter: return "Вниз по центру";
+                case AnnotationPosition.BottomRight: return "Вправо вниз";
+                case AnnotationPosition.HorizontalLeft: return "Горизонтально влево";
+                case AnnotationPosition.HorizontalRight: return "Горизонтально вправо";
+                default: return position.Value.ToString();
+            }
         }
         
         private XYZ GetElementLocation(Element element)
@@ -768,18 +1125,18 @@ namespace Annotatix.Module.Core
         /// <summary>
         /// Calculate head position for L-shaped leader geometry.
         /// 
-        /// IMPORTANT: TagHeadPosition in Revit is the CENTER of the tag (where the leader
-        /// connects to the middle of the shelf). The shelf extends equally from the center
-        /// in both directions. To position the tag correctly, we need to offset the head
-        /// by TotalWidth/2 so that the nearest EDGE of the tag is at `horizontalOffset`
-        /// from the leader end.
+        /// IMPORTANT: TagHeadPosition in Revit is the END of the leader line, where
+        /// the tag text is displayed. It is NOT the shelf edge where the leader connects.
+        /// The leader line goes: LeaderEnd -> Elbow -> Head(TagHeadPosition).
+        /// For Left positions: Head is to the LEFT of Elbow by (shelfWidth + shelfGap).
+        /// For Right positions: Head is to the RIGHT of Elbow by (shelfWidth + shelfGap).
         /// 
         /// Visual layout (TopRight example):
-        ///   Element ─── LeaderEnd ─── [edgeOffset] ─── ShelfLeftEdge ─── [TotalWidth] ─── ShelfRightEdge
-        ///                                                      ↑ TagHeadPosition (center of shelf)
+        ///   Element -> LeaderEnd -> [up to Elbow] -> [right to ShelfLeftEdge] -> [shelfWidth] -> Head(Tip)
+        ///                                                                                          ↑ TagHeadPosition
         /// 
-        /// The leader horizontal segment goes from Elbow to TagHeadPosition (center of shelf).
-        /// Leader horizontal length = edgeOffset + TotalWidth/2
+        /// The leader horizontal segment goes from Elbow to TagHeadPosition (shelf edge).
+        /// Leader horizontal length = shelfWidth + shelfGap (shelf extends from leader edge to tip)
         /// </summary>
         private (double X, double Y) CalculateHeadPosition(
             XYZ location,
@@ -788,10 +1145,15 @@ namespace Annotatix.Module.Core
             AnnotationSize size,
             double horizontalOffset)
         {
-            // Use Width (text area only) for positioning, NOT TotalWidth (which includes collision padding)
-            // The shelf length in the tag family = text width + minimal margin
-            // Padding is for collision detection only and should not affect where the head is placed
-            double shelfHalfWidth = size.Width / 2;
+            // TagHeadPosition = END of the leader line (where tag text is displayed)
+            // The leader goes: LeaderEnd -> Elbow -> Head(TagHeadPosition)
+            // For Left positions: Head is LEFT of Elbow by (shelfWidth + shelfGap)
+            // For Right positions: Head is RIGHT of Elbow by (shelfWidth + shelfGap)
+            // For Horizontal: Head is directly left/right of LeaderEnd by (shelfWidth + shelfGap)
+            // horizontalOffset = distance from element edge to nearest annotation edge (in model feet)
+            // This is calculated by CalculateOptimalOffset based on element size (1-4mm on paper)
+            double shelfGapModel = horizontalOffset; // Use the dynamic offset for consistency with collision detection
+            double shelfWidthModel = size.Width; // shelf width in model feet
             
             bool isTop = position == AnnotationPosition.TopLeft || position == AnnotationPosition.TopRight;
             bool isBottom = position == AnnotationPosition.BottomLeft || position == AnnotationPosition.BottomRight;
@@ -800,16 +1162,16 @@ namespace Annotatix.Module.Core
             if (isHorizontal)
             {
                 // Horizontal: leader goes SIDEWAYS from element
-                // horizontalOffset provides clearance between element and annotation edge
-                double totalOffsetX = horizontalOffset + shelfHalfWidth;
+                // Head is at shelf tip (far end from element)
+                double horizontalDist = shelfGapModel + shelfWidthModel;
                 return position switch
                 {
                     AnnotationPosition.HorizontalLeft => (
-                        location.X - totalOffsetX,
+                        location.X - horizontalDist,
                         location.Y
                     ),
                     AnnotationPosition.HorizontalRight => (
-                        location.X + totalOffsetX,
+                        location.X + horizontalDist,
                         location.Y
                     ),
                     _ => (location.X, location.Y)
@@ -817,20 +1179,17 @@ namespace Annotatix.Module.Core
             }
             else
             {
-                // L-shaped (Top/Bottom): shelf edge aligns with leader end X
-                // The vertical leader segment provides clearance (via elbowHeight)
-                // A small horizontalOffset ensures the shelf doesn't overlap the annotated element.
-                // HeadViewX = leaderEndViewX + horizontalOffset + shelfHalfWidth (right-attached)
-                // So the shelf LEFT edge is at: HeadViewX - shelfHalfWidth = leaderEndViewX + horizontalOffset
-                // This means the shelf starts exactly horizontalOffset away from the leader end.
+                // L-shaped (Top/Bottom): leader goes UP/DOWN then SIDEWAYS
+                // Head is at shelf tip, (shelfWidth + shelfGap) from leader end X
                 double headX;
+                double sideOffset = shelfGapModel + shelfWidthModel;
                 if (position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight)
                 {
-                    headX = location.X + horizontalOffset + shelfHalfWidth;
+                    headX = location.X + sideOffset;
                 }
                 else // TopLeft, BottomLeft
                 {
-                    headX = location.X - horizontalOffset - shelfHalfWidth;
+                    headX = location.X - sideOffset;
                 }
                 
                 double headY = isTop ? location.Y + elbowHeight : location.Y - elbowHeight;
@@ -856,15 +1215,55 @@ namespace Annotatix.Module.Core
             double horizontalOffset)
         {
             var headPos = CalculateHeadPosition(location, position, elbowHeight, size, horizontalOffset);
-                    
-            // BBox is centered on head position (TagHeadPosition = CENTER of tag)
-            return new BBox2D
+            
+            // TagHeadPosition is now the shelf TIP (far end from leader connection)
+            // The shelf extends from headPos TOWARD the element by shelfWidth
+            // The leader connection is at headPos + shelfWidth (for Left) or headPos - shelfWidth (for Right)
+            double shelfWidth = size.Width;  // shelf length in model feet
+            double textHeight = size.Height; // text height in model feet
+            double pad = size.Padding;
+            
+            bool isRight = position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight || position == AnnotationPosition.HorizontalRight;
+            bool isLeft = position == AnnotationPosition.TopLeft || position == AnnotationPosition.BottomLeft || position == AnnotationPosition.HorizontalLeft;
+            bool isTop = position == AnnotationPosition.TopLeft || position == AnnotationPosition.TopRight;
+            bool isBottom = position == AnnotationPosition.BottomLeft || position == AnnotationPosition.BottomRight;
+            bool isHorizontal = position == AnnotationPosition.HorizontalLeft || position == AnnotationPosition.HorizontalRight;
+            
+            var bbox = new BBox2D();
+            
+            // X extent: headPos is at the shelf tip
+            // Shelf extends from headPos TOWARD the element
+            if (isRight)
             {
-                MinX = headPos.X - size.TotalWidth / 2,
-                MaxX = headPos.X + size.TotalWidth / 2,
-                MinY = headPos.Y - size.TotalHeight / 2,
-                MaxY = headPos.Y + size.TotalHeight / 2
-            };
+                // Head is at right tip, shelf extends LEFT toward element
+                bbox.MinX = headPos.X - shelfWidth - pad; // left edge (near element)
+                bbox.MaxX = headPos.X + pad;              // right edge (tip + padding)
+            }
+            else // Left
+            {
+                // Head is at left tip, shelf extends RIGHT toward element
+                bbox.MinX = headPos.X - pad;               // left edge (tip - padding)
+                bbox.MaxX = headPos.X + shelfWidth + pad;   // right edge (near element)
+            }
+            
+            // Y extent: text extends from shelf upward (for top) or downward (for bottom)
+            if (isTop)
+            {
+                bbox.MinY = headPos.Y - pad;              // small padding below shelf
+                bbox.MaxY = headPos.Y + textHeight + pad; // text extends up + padding
+            }
+            else if (isBottom)
+            {
+                bbox.MinY = headPos.Y - textHeight - pad; // text extends down + padding
+                bbox.MaxY = headPos.Y + pad;              // small padding above shelf
+            }
+            else // Horizontal
+            {
+                bbox.MinY = headPos.Y - textHeight / 2 - pad;
+                bbox.MaxY = headPos.Y + textHeight / 2 + pad;
+            }
+            
+            return bbox;
         }
                 
         /// <summary>
@@ -903,35 +1302,118 @@ namespace Annotatix.Module.Core
         /// </summary>
         private enum ElementOrientation
         {
-            /// <summary>⬊ Diagonal: left edge is higher than right edge (slopes down to the right)</summary>
+            /// <summary>\ Diagonal: left edge is higher than right edge (slopes down to the right)</summary>
             DiagonalLeftHigher,
-            /// <summary>⬋ Diagonal: right edge is higher than left edge (slopes down to the left)</summary>
+            /// <summary>// Diagonal: right edge is higher than left edge (slopes down to the left)</summary>
             DiagonalRightHigher,
-            /// <summary>⬌ Horizontal: element is wider than tall</summary>
+            /// <summary>-- Horizontal: element is wider than tall</summary>
             Horizontal,
-            /// <summary>⬍ Vertical: element is taller than wide</summary>
+            /// <summary>|| Vertical: element is taller than wide</summary>
             Vertical
         }
         
         /// <summary>
-        /// Determine optimal position order based on element's geometric orientation on the view.
-        /// Priority is determined by how the element's projection is oriented:
-        /// - Diagonal ⬊ (left higher): TopRight > HorizontalRight > HorizontalLeft > BottomLeft > TopLeft > BottomRight
-        /// - Diagonal ⬋ (right higher): TopLeft > HorizontalLeft > HorizontalRight > BottomRight > TopRight > BottomLeft
-        /// - Horizontal ⬌: TopLeft > TopRight > BottomLeft > BottomRight > HorizontalLeft > HorizontalRight
-        /// - Vertical ⬍: HorizontalLeft > HorizontalRight > TopLeft > BottomLeft > TopRight > BottomRight
+        /// Determine element orientation from view coordinates (ViewStart/ViewEnd).
+        /// This is more accurate than using bounding box projection because it uses
+        /// the actual element direction as seen on the view.
+        /// User's algorithm:
+        /// \ (x1<x2, y1>y2): Left edge higher -> slopes down to the right
+        /// // (x1<x2, y1<y2): Right edge higher -> slopes up to the right
+        /// -- (x1<x2, y1~=y2): Horizontal
+        /// || (x1~=x2, y1<y2): Vertical
         /// </summary>
-        private List<AnnotationPosition> GetOptimalPositionOrder(
+        private ElementOrientation DetermineElementOrientationFromViewCoords(
+            double x1, double y1, double x2, double y2)
+        {
+            // Ensure x1 < x2 (swap if needed)
+            if (x1 > x2)
+            {
+                double tmp = x1; x1 = x2; x2 = tmp;
+                tmp = y1; y1 = y2; y2 = tmp;
+            }
+            
+            double dx = x2 - x1;
+            double dy = y2 - y1;
+            
+            // Threshold for horizontal/vertical classification
+            const double threshold = 0.1;
+            
+            // -- Horizontal: y1 ~= y2
+            if (Math.Abs(dy) < threshold * Math.Max(dx, 0.01))
+                return ElementOrientation.Horizontal;
+            
+            // || Vertical: x1 ~= x2
+            if (Math.Abs(dx) < threshold * Math.Max(Math.Abs(dy), 0.01))
+                return ElementOrientation.Vertical;
+            
+            // \ Diagonal left higher: x1<x2 and y1>y2 (slopes down to the right)
+            if (y1 > y2)
+                return ElementOrientation.DiagonalLeftHigher;
+            
+            // // Diagonal right higher: x1<x2 and y1<y2 (slopes up to the right)
+            return ElementOrientation.DiagonalRightHigher;
+        }
+        
+        /// <summary>
+        /// Determine orientation for a point element (accessory, air terminal, equipment)
+        /// by finding connected ducts in the system graph and inheriting their orientation.
+        /// If the element is not part of a system or has no connected ducts, returns Horizontal (fallback).
+        /// </summary>
+        private ElementOrientation DetermineOrientationFromConnectedDucts(AnnotationPlan plan)
+        {
+            try
+            {
+                if (plan.Node == null || plan.Node.ConnectedNodeIds == null || plan.Node.ConnectedNodeIds.Count == 0)
+                    return ElementOrientation.Horizontal;
+                
+                // Look through connected nodes for ducts (linear elements with endpoints)
+                foreach (var connectedId in plan.Node.ConnectedNodeIds)
+                {
+                    try
+                    {
+                        var connectedElement = _document.GetElement(new ElementId(connectedId));
+                        if (connectedElement == null) continue;
+                        
+                        // Check if it's a duct or pipe (linear element)
+                        if (connectedElement is Duct || connectedElement is Pipe)
+                        {
+                            // Get the duct's direction from its LocationCurve
+                            if (connectedElement.Location is LocationCurve lc && lc.Curve != null)
+                            {
+                                var start = lc.Curve.GetEndPoint(0);
+                                var end = lc.Curve.GetEndPoint(1);
+                                
+                                // Convert to view coordinates
+                                var (viewX1, viewY1) = ConvertModelToViewCoordinates(start);
+                                var (viewX2, viewY2) = ConvertModelToViewCoordinates(end);
+                                
+                                // Determine orientation using same logic as for ducts
+                                var ductOrientation = DetermineElementOrientationFromViewCoords(
+                                    viewX1, viewY1, viewX2, viewY2);
+                                
+                                DebugLogger.Log($"[GREEDY-PLACEMENT] Element {plan.ElementId}: inherited orientation {ductOrientation} from connected duct {connectedId}");
+                                return ductOrientation;
+                            }
+                        }
+                    }
+                    catch { continue; }
+                }
+            }
+            catch { }
+            
+            return ElementOrientation.Horizontal; // No connected duct found
+        }
+        
+        /// <summary>
+        /// Get position order from a pre-determined orientation.
+        /// </summary>
+        private List<AnnotationPosition> GetOptimalPositionOrderFromOrientation(
             List<AnnotationPosition> preferredPositions,
-            XYZ elementLocation,
-            BoundingBoxXYZ elementBbox)
+            ElementOrientation orientation)
         {
             if (preferredPositions == null || preferredPositions.Count == 0)
                 return new List<AnnotationPosition> { AnnotationPosition.TopRight };
 
-            // Determine element orientation from bounding box projection
-            var orientation = DetermineElementOrientation(elementBbox);
-            
             // Get position priority based on orientation
             var positionPriority = GetPositionPriorityForOrientation(orientation);
         
@@ -947,9 +1429,7 @@ namespace Annotatix.Module.Core
                     result.Add(p);
             }
             
-            double elemCenterX = elementLocation.X;
-            double elemCenterY = elementLocation.Y;
-            DebugLogger.Log($"[GREEDY-PLACEMENT] Position order for element at ({elemCenterX:F2}, {elemCenterY:F2}): orientation={orientation}, order={string.Join(", ", result)}");
+            DebugLogger.Log($"[GREEDY-PLACEMENT] Position order: orientation={orientation}, order={string.Join(", ", result)}");
         
             return result;
         }
@@ -1038,14 +1518,14 @@ namespace Annotatix.Module.Core
                                           .Select(c => c.DotProduct(viewUp))
                                           .DefaultIfEmpty(0).Min();
             
-            // ⬊ Left edge higher: left side has higher max Y OR lower min Y than right side
+            // \ Left edge higher: left side has higher max Y OR lower min Y than right side
             // This means the element slopes down to the right
             if (leftSideMaxY > rightSideMaxY + 0.01 || leftSideMinY > rightSideMinY + 0.01)
             {
                 return ElementOrientation.DiagonalLeftHigher;
             }
             
-            // ⬋ Right edge higher: right side is higher
+            // // Right edge higher: right side is higher
             if (rightSideMaxY > leftSideMaxY + 0.01 || rightSideMinY > leftSideMinY + 0.01)
             {
                 return ElementOrientation.DiagonalRightHigher;
@@ -1066,7 +1546,7 @@ namespace Annotatix.Module.Core
             switch (orientation)
             {
                 case ElementOrientation.DiagonalLeftHigher:
-                    // ⬊ Object: left edge higher than right edge
+                    // \ Object: left edge higher than right edge
                     // Priority: TopRight > HorizontalRight > HorizontalLeft > BottomLeft > TopLeft > BottomRight
                     // TopLeft and BottomRight only as last resort
                     priority.Add(AnnotationPosition.TopRight);
@@ -1078,7 +1558,7 @@ namespace Annotatix.Module.Core
                     break;
                     
                 case ElementOrientation.DiagonalRightHigher:
-                    // ⬋ Object: right edge higher than left edge
+                    // // Object: right edge higher than left edge
                     // Priority: TopLeft > HorizontalLeft > HorizontalRight > BottomRight > TopRight > BottomLeft
                     // TopRight and BottomLeft only as last resort
                     priority.Add(AnnotationPosition.TopLeft);
@@ -1090,7 +1570,7 @@ namespace Annotatix.Module.Core
                     break;
                     
                 case ElementOrientation.Horizontal:
-                    // ⬌ Object: horizontal orientation
+                    // -- Object: horizontal orientation
                     // Priority: TopLeft > TopRight > BottomLeft > BottomRight > HorizontalLeft > HorizontalRight
                     // HorizontalLeft/HorizontalRight only when no other elements on that side
                     priority.Add(AnnotationPosition.TopLeft);
@@ -1102,7 +1582,7 @@ namespace Annotatix.Module.Core
                     break;
                     
                 case ElementOrientation.Vertical:
-                    // ⬍ Object: vertical orientation
+                    // || Object: vertical orientation
                     // Priority: HorizontalLeft > HorizontalRight > TopLeft > BottomLeft > TopRight > BottomRight
                     priority.Add(AnnotationPosition.HorizontalLeft);
                     priority.Add(AnnotationPosition.HorizontalRight);
@@ -1168,7 +1648,8 @@ namespace Annotatix.Module.Core
                 {
                     // L-shaped: shelf edge aligns near leader end X (with horizontalOffset gap)
                     // Head center = leader end X ± (horizontalOffset + actualWidth/2)
-                    double edgeGap = 1.0 / 304.8 * _view.Scale; // 1mm paper gap
+                    // Note: horizontalOffset is now used consistently with CalculateHeadPosition
+                    double edgeGap = 1.0 / 304.8 * _view.Scale; // 1mm paper gap (consistent with base offset)
                     if (isRight)
                     {
                         adjustedX = leaderEndPos.X + edgeGap + actualWidth / 2;
@@ -1411,7 +1892,7 @@ namespace Annotatix.Module.Core
                                 int line1Len = EstimateFirstLineLength(tagText, plan.AnnotationType);
                                 int line2Len = tagText.Length - line1Len;
                                 maxLineLength = Math.Max(line1Len, line2Len);
-                                DebugLogger.Log($"[GREEDY-PLACEMENT] 3D view: multi-line tag \"{tagText}\" split: line1≈{line1Len}, line2≈{line2Len}, maxLine={maxLineLength}");
+                                DebugLogger.Log($"[GREEDY-PLACEMENT] 3D view: multi-line tag \"{tagText}\" split: line1~={line1Len}, line2~={line2Len}, maxLine={maxLineLength}");
                             }
                             else
                             {
@@ -1504,47 +1985,14 @@ namespace Annotatix.Module.Core
                     }
                     else if (is3DView)
                     {
-                        // 3D view: After tag type change, the actual shelf length may differ from the
-                        // initial size.TotalWidth estimate. Recalculate head position using actual shelf length.
-                        // The shelf length is encoded in the type name: e.g., "Круглый воздуховод_Размер и расход (16)" -> 16mm
+                        // 3D view: After tag type change, the actual shelf length may differ.
+                        // Since TagHeadPosition = shelf edge at 1mm from leader, head position
+                        // doesn't depend on shelf width (only shelfGap). So no head recalculation needed.
+                        // The actual shelf length is used by ComputeOccupiedBbox3D for collision detection.
                         double? actualShelfMm = TagTypeManager.GetShelfLengthFromTypeNamePublic(tag.Name);
                         if (actualShelfMm.HasValue && actualShelfMm.Value > 0)
                         {
-                            // Convert shelf length from mm to model feet
-                            double actualShelfFeet = actualShelfMm.Value / 304.8 * currentViewScale;
-                            
-                            // Create corrected AnnotationSize using actual shelf length
-                            var correctedSize = new AnnotationSize
-                            {
-                                Width = actualShelfFeet,
-                                Height = size.Height,
-                                Padding = size.Padding
-                            };
-                            
-                            // Recalculate head position with the corrected size
-                            var correctedHeadPos = CalculateHeadPositionFor3DView(
-                                location, tagZ, horizontalOffset, correctedSize, position, elbowHeight);
-                            
-                            // Check if the corrected position is significantly different
-                            double positionDiff = Math.Sqrt(
-                                Math.Pow(correctedHeadPos.X - tagHeadPosition.X, 2) +
-                                Math.Pow(correctedHeadPos.Y - tagHeadPosition.Y, 2));
-                            
-                            if (positionDiff > 0.01) // More than ~3mm difference
-                            {
-                                DebugLogger.Log($"[GREEDY-PLACEMENT] 3D view: correcting head position after type change.");
-                                DebugLogger.Log($"[GREEDY-PLACEMENT]   Old size.TotalWidth={size.TotalWidth:F4}ft, actual shelf={actualShelfMm.Value:F0}mm={actualShelfFeet:F4}ft");
-                                DebugLogger.Log($"[GREEDY-PLACEMENT]   Old head: ({tagHeadPosition.X:F3}, {tagHeadPosition.Y:F3}), new head: ({correctedHeadPos.X:F3}, {correctedHeadPos.Y:F3})");
-                                tagHeadPosition = correctedHeadPos;
-                            }
-                            else
-                            {
-                                DebugLogger.Log($"[GREEDY-PLACEMENT] 3D view: head position OK (shelf={actualShelfMm.Value:F0}mm, diff={positionDiff:F4}ft)");
-                            }
-                        }
-                        else
-                        {
-                            DebugLogger.Log($"[GREEDY-PLACEMENT] 3D view: could not determine actual shelf length from type name '{tag.Name}', using initial position (size.Width={size.Width:F4})");
+                            DebugLogger.Log($"[GREEDY-PLACEMENT] 3D view: tag type changed, actual shelf={actualShelfMm.Value:F0}mm (head position unchanged, shelf gap=1mm)");
                         }
                     }
                     
@@ -1679,33 +2127,34 @@ namespace Annotatix.Module.Core
             double headViewX;
             double headViewY;
             
-            // Use Width (text area only) for positioning, NOT TotalWidth (which includes collision padding)
-            // The shelf length in the tag family = text width + minimal margin
-            // Padding is for collision detection only and should not affect where the head is placed
-            double shelfHalfWidth = size.Width / 2;
+            // TagHeadPosition = END of the leader line (where tag text is displayed)
+            // The leader goes: LeaderEnd -> Elbow -> Head(TagHeadPosition)
+            // Head is at (shelfWidth + shelfGap) from leader end in the horizontal direction
+            // horizontalOffset = distance from element edge to nearest annotation edge (in model feet)
+            // This is calculated by CalculateOptimalOffset based on element size (1-4mm on paper)
+            double shelfGapView = horizontalOffset; // Use the dynamic offset for consistency with collision detection
+            double shelfWidthView = size.Width; // shelf width in model feet
+            double sideOffsetView = shelfGapView + shelfWidthView; // total horizontal distance from leader end to head
             
             if (isHorizontal)
             {
                 // Horizontal: straight line on screen, headViewY = leaderEndViewY
-                // horizontalOffset provides clearance between element and annotation edge
-                double totalOffsetX = horizontalOffset + shelfHalfWidth;
+                // Head is at (shelfWidth + shelfGap) from leader end horizontally
                 headViewY = leaderEndViewY;
                 
                 if (position == AnnotationPosition.HorizontalLeft)
                 {
-                    headViewX = leaderEndViewX - totalOffsetX;
+                    headViewX = leaderEndViewX - sideOffsetView;
                 }
                 else // HorizontalRight
                 {
-                    headViewX = leaderEndViewX + totalOffsetX;
+                    headViewX = leaderEndViewX + sideOffsetView;
                 }
             }
             else
             {
-                // L-shaped (Top/Bottom): shelf edge aligns near the leader end X
-                // horizontalOffset provides clearance between element and shelf edge
-                // HeadViewX = leaderEndViewX + horizontalOffset + shelfHalfWidth (right-attached)
-                // Shelf LEFT edge = HeadViewX - shelfHalfWidth = leaderEndViewX + horizontalOffset
+                // L-shaped (Top/Bottom): leader goes UP/DOWN then SIDEWAYS
+                // Head is at shelf tip, (shelfWidth + shelfGap) from leader end X
                 if (isTop)
                 {
                     headViewY = leaderEndViewY + elbowHeight;
@@ -1717,11 +2166,11 @@ namespace Annotatix.Module.Core
                 
                 if (position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight)
                 {
-                    headViewX = leaderEndViewX + horizontalOffset + shelfHalfWidth;
+                    headViewX = leaderEndViewX + sideOffsetView;
                 }
                 else // TopLeft, BottomLeft
                 {
-                    headViewX = leaderEndViewX - horizontalOffset - shelfHalfWidth;
+                    headViewX = leaderEndViewX - sideOffsetView;
                 }
             }
             
@@ -2382,22 +2831,26 @@ namespace Annotatix.Module.Core
                 var planList = typeGroup.ToList();
                 var processed = new HashSet<long>();
                 
+                // Collect view coordinates for all elements to determine extreme positions
+                var planViewCoords = new Dictionary<long, (double viewX, double viewY)>();
+                foreach (var p in planList)
+                {
+                    var elem = _document.GetElement(new ElementId(p.ElementId));
+                    if (elem == null) continue;
+                    var loc = GetElementLocation(elem);
+                    if (loc == null) continue;
+                    var (vx, vy) = ConvertModelToViewCoordinates(loc);
+                    planViewCoords[p.ElementId] = (vx, vy);
+                }
+                
                 for (int i = 0; i < planList.Count; i++)
                 {
                     if (processed.Contains(planList[i].ElementId))
                         continue;
                     
                     var primaryPlan = planList[i];
-                    var primaryElement = _document.GetElement(new ElementId(primaryPlan.ElementId));
-                    if (primaryElement == null)
-                        continue;
-                    
-                    var primaryLocation = GetElementLocation(primaryElement);
-                    if (primaryLocation == null)
-                        continue;
-                    
-                    // Convert primary location to view coordinates
-                    var (primaryViewX, primaryViewY) = ConvertModelToViewCoordinates(primaryLocation);
+                    if (!planViewCoords.ContainsKey(primaryPlan.ElementId)) continue;
+                    var (primaryViewX, primaryViewY) = planViewCoords[primaryPlan.ElementId];
                     
                     // Proximity threshold in mm on paper
                     // Two elements are "nearby" if they are within this distance on the printed sheet
@@ -2405,7 +2858,7 @@ namespace Annotatix.Module.Core
                     double proximityModelFeet = proximityMm / 304.8 * _view.Scale;
                     double proximityModelFeetSq = proximityModelFeet * proximityModelFeet;
                     
-                    var group = new ElementGroup { PrimaryPlan = primaryPlan };
+                    var nearbyPlans = new List<AnnotationPlan>();
                     processed.Add(primaryPlan.ElementId);
                     
                     for (int j = i + 1; j < planList.Count; j++)
@@ -2413,33 +2866,51 @@ namespace Annotatix.Module.Core
                         if (processed.Contains(planList[j].ElementId))
                             continue;
                         
-                        var otherElement = _document.GetElement(new ElementId(planList[j].ElementId));
-                        if (otherElement == null)
-                            continue;
-                        
-                        var otherLocation = GetElementLocation(otherElement);
-                        if (otherLocation == null)
-                            continue;
-                        
-                        // Check proximity in view coordinates (screen space)
-                        var (otherViewX, otherViewY) = ConvertModelToViewCoordinates(otherLocation);
+                        if (!planViewCoords.ContainsKey(planList[j].ElementId)) continue;
+                        var (otherViewX, otherViewY) = planViewCoords[planList[j].ElementId];
                         double distViewX = otherViewX - primaryViewX;
                         double distViewY = otherViewY - primaryViewY;
                         double distViewSq = distViewX * distViewX + distViewY * distViewY;
                         
                         if (distViewSq <= proximityModelFeetSq)
                         {
-                            group.AdditionalPlans.Add(planList[j]);
+                            nearbyPlans.Add(planList[j]);
                             processed.Add(planList[j].ElementId);
-                            
-                            DebugLogger.Log($"[GREEDY-PLACEMENT] Grouping element {planList[j].ElementId} with {primaryPlan.ElementId} (dist={Math.Sqrt(distViewSq):F2} model ft)");
                         }
                     }
                     
-                    if (group.AdditionalPlans.Count > 0)
+                    if (nearbyPlans.Count > 0)
                     {
+                        // Select the extreme element as primary:
+                        // The element with the largest or smallest X or Y coordinate on the view
+                        var allGroupPlans = new List<AnnotationPlan> { primaryPlan };
+                        allGroupPlans.AddRange(nearbyPlans);
+                        
+                        AnnotationPlan extremePlan = primaryPlan;
+                        double maxAbsCoord = 0;
+                        
+                        foreach (var p in allGroupPlans)
+                        {
+                            if (!planViewCoords.ContainsKey(p.ElementId)) continue;
+                            var (vx, vy) = planViewCoords[p.ElementId];
+                            // Use max absolute coordinate to find the element at the edge of the group
+                            double maxCoord = Math.Max(Math.Abs(vx), Math.Abs(vy));
+                            if (maxCoord > maxAbsCoord)
+                            {
+                                maxAbsCoord = maxCoord;
+                                extremePlan = p;
+                            }
+                        }
+                        
+                        // Rebuild group with extreme element as primary
+                        var group = new ElementGroup { PrimaryPlan = extremePlan };
+                        foreach (var p in allGroupPlans.Where(p => p.ElementId != extremePlan.ElementId))
+                        {
+                            group.AdditionalPlans.Add(p);
+                        }
+                        
                         groups.Add(group);
-                        DebugLogger.Log($"[GREEDY-PLACEMENT] Created group: primary={primaryPlan.ElementId}, additional={string.Join(",", group.AdditionalPlans.Select(p => p.ElementId))}");
+                        DebugLogger.Log($"[GREEDY-PLACEMENT] Created group: primary={extremePlan.ElementId} (extreme element), additional={string.Join(",", group.AdditionalPlans.Select(p => p.ElementId))}");
                     }
                 }
             }
