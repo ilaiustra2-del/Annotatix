@@ -238,15 +238,45 @@ namespace Annotatix.Module.Core
                 var allGroupPlans = new List<AnnotationPlan> { group.PrimaryPlan };
                 allGroupPlans.AddRange(group.AdditionalPlans);
                 
-                // Override position preferences based on extreme element direction:
-                // - If extreme is RIGHT → prefer right-facing configs (TopRight, HorizontalRight, BottomRight)
-                // - If extreme is LEFT → prefer left-facing configs (TopLeft, HorizontalLeft, BottomLeft)
+                // Override position preferences based on EACH element's position in the group:
+                // - If element is the RIGHTMOST → prefer right-facing configs (TopRight, HorizontalRight, BottomRight)
+                // - If element is the LEFTMOST → prefer left-facing configs (TopLeft, HorizontalLeft, BottomLeft)
+                // - If element is in the MIDDLE → use the group's IsRightExtreme flag
                 // OverridePositionOrder=true ensures these positions are used as-is without
                 // being reordered by GetOptimalPositionOrderFromOrientation
+                // 
+                // Calculate each element's viewX to determine its position in the group
+                var elemViewXMap = new Dictionary<long, double>();
+                foreach (var p in allGroupPlans)
+                {
+                    var elem = _document.GetElement(new ElementId(p.ElementId));
+                    if (elem != null)
+                    {
+                        var loc = GetElementLocation(elem);
+                        if (loc != null)
+                        {
+                            var (vx, vy) = ConvertModelToViewCoordinates(loc);
+                            elemViewXMap[p.ElementId] = vx;
+                        }
+                    }
+                }
+                
+                double groupMinViewX = elemViewXMap.Count > 0 ? elemViewXMap.Values.Min() : 0;
+                double groupMaxViewX = elemViewXMap.Count > 0 ? elemViewXMap.Values.Max() : 0;
+                double viewXTolerance = (groupMaxViewX - groupMinViewX) * 0.1; // 10% tolerance for "middle" elements
+                if (viewXTolerance < 0.001) viewXTolerance = 0.001;
+                
                 foreach (var plan in allGroupPlans)
                 {
                     plan.OverridePositionOrder = true;
-                    if (group.IsRightExtreme)
+                    
+                    // Determine if this specific element is rightmost, leftmost, or middle
+                    bool isRightmost = elemViewXMap.ContainsKey(plan.ElementId) &&
+                                       (groupMaxViewX - elemViewXMap[plan.ElementId]) < viewXTolerance;
+                    bool isLeftmost = elemViewXMap.ContainsKey(plan.ElementId) &&
+                                      (elemViewXMap[plan.ElementId] - groupMinViewX) < viewXTolerance;
+                    
+                    if (isRightmost)
                     {
                         plan.PreferredPositions = new List<AnnotationPosition>
                         {
@@ -258,7 +288,7 @@ namespace Annotatix.Module.Core
                             AnnotationPosition.BottomLeft
                         };
                     }
-                    else
+                    else if (isLeftmost)
                     {
                         plan.PreferredPositions = new List<AnnotationPosition>
                         {
@@ -270,6 +300,42 @@ namespace Annotatix.Module.Core
                             AnnotationPosition.BottomRight
                         };
                     }
+                    else
+                    {
+                        // Middle element: use group direction as fallback
+                        if (group.IsRightExtreme)
+                        {
+                            plan.PreferredPositions = new List<AnnotationPosition>
+                            {
+                                AnnotationPosition.TopRight,
+                                AnnotationPosition.HorizontalRight,
+                                AnnotationPosition.BottomRight,
+                                AnnotationPosition.TopLeft,
+                                AnnotationPosition.HorizontalLeft,
+                                AnnotationPosition.BottomLeft
+                            };
+                        }
+                        else
+                        {
+                            plan.PreferredPositions = new List<AnnotationPosition>
+                            {
+                                AnnotationPosition.TopLeft,
+                                AnnotationPosition.HorizontalLeft,
+                                AnnotationPosition.BottomLeft,
+                                AnnotationPosition.TopRight,
+                                AnnotationPosition.HorizontalRight,
+                                AnnotationPosition.BottomRight
+                            };
+                        }
+                    }
+                }
+                
+                // Log position assignments for each group element
+                foreach (var p in allGroupPlans)
+                {
+                    string dirLabel = elemViewXMap.ContainsKey(p.ElementId) && (groupMaxViewX - elemViewXMap[p.ElementId]) < viewXTolerance ? "RIGHTMOST" :
+                                      elemViewXMap.ContainsKey(p.ElementId) && (elemViewXMap[p.ElementId] - groupMinViewX) < viewXTolerance ? "LEFTMOST" : "MIDDLE";
+                    DebugLogger.Log($"[GREEDY-PLACEMENT] Element {p.ElementId}: {dirLabel}, positions={string.Join("→", p.PreferredPositions.Select(pos => PositionToRussianString(pos)))}");
                 }
                 
                 // Mark additional elements as grouped (they won't get individual annotations)
@@ -2099,14 +2165,25 @@ namespace Annotatix.Module.Core
                                 // Strategy: split at common boundary patterns
                                 int line1Len = EstimateFirstLineLength(tagText, plan.AnnotationType);
                                 int line2Len = tagText.Length - line1Len;
-                                maxLineLength = Math.Max(line1Len, line2Len);
-                                DebugLogger.Log($"[GREEDY-PLACEMENT] 3D view: multi-line tag \"{tagText}\" split: line1~={line1Len}, line2~={line2Len}, maxLine={maxLineLength}");
+                                
+                                // Truncate trailing zeros after decimal point for width estimation.
+                                // Revit displays "100.0" as "100" and "0.0000" as "0" on the tag,
+                                // so the rendered text is shorter than the raw TagText.
+                                // Example: "ø100.0" → "ø100" (4 chars vs 6), "L0.0000" → "L0" (2 chars vs 7)
+                                string line1Text = tagText.Substring(0, line1Len);
+                                string line2Text = tagText.Substring(line1Len);
+                                string line1Truncated = TruncateTrailingZeros(line1Text);
+                                string line2Truncated = TruncateTrailingZeros(line2Text);
+                                maxLineLength = Math.Max(line1Truncated.Length, line2Truncated.Length);
+                                DebugLogger.Log($"[GREEDY-PLACEMENT] 3D view: multi-line tag \"{tagText}\" split: line1=\"{line1Text}\"→\"{line1Truncated}\"({line1Truncated.Length}), line2=\"{line2Text}\"→\"{line2Truncated}\"({line2Truncated.Length}), maxLine={maxLineLength}");
                             }
                             else
                             {
                                 // Single-line tag or TagText has line breaks
                                 string[] lines = tagText.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-                                maxLineLength = lines.Length > 0 ? lines.Max(l => l.Length) : tagText.Length;
+                                // Apply trailing zero truncation to each line
+                                var truncatedLines = lines.Select(l => TruncateTrailingZeros(l)).ToList();
+                                maxLineLength = truncatedLines.Count > 0 ? truncatedLines.Max(l => l.Length) : tagText.Length;
                             }
                             
                             // Estimate width: 1.5mm per character for Cyrillic/bold text
@@ -2440,12 +2517,44 @@ namespace Annotatix.Module.Core
             }
             
             // For air terminal tags (AirTerminalTypeFlow, AirTerminalShortNameFlow):
-            // Format: "Ecoline 2  100" or "VS 100M  50"
+            // Format: "Ecoline 2  100" or "VS 100M  50" or "L35.0000VS 100M"
             // Line 1 is the type name, Line 2 is the flow value
             // The boundary is typically after the name - look for multiple spaces or a numeric-only suffix
             if (annotationType == AnnotationType.AirTerminalTypeFlow ||
                 annotationType == AnnotationType.AirTerminalShortNameFlow)
             {
+                // Special case: TagText starts with "L" followed by digits (flow line comes first)
+                // Example: "L35.0000VS 100M" → Line 1 = "L35.0000", Line 2 = "VS 100M"
+                if (tagText.Length > 1 && tagText[0] == 'L' && char.IsDigit(tagText[1]))
+                {
+                    // Find where the flow value ends: after digits and optional decimal part
+                    int flowEnd = 1;
+                    bool seenDot = false;
+                    while (flowEnd < tagText.Length)
+                    {
+                        if (char.IsDigit(tagText[flowEnd]))
+                        {
+                            flowEnd++;
+                        }
+                        else if (tagText[flowEnd] == '.' && !seenDot)
+                        {
+                            seenDot = true;
+                            flowEnd++;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    // flowEnd is now the start of the name part
+                    // But we want line1 to be the FIRST line (above shelf)
+                    // and line2 to be the SECOND line (below shelf).
+                    // In Revit tag families, the order in TagText is: line1 + line2.
+                    // So if flow comes first in TagText, it means flow=line1, name=line2.
+                    // We return flowEnd as the line1 length.
+                    return flowEnd;
+                }
+                
                 // Look for double space (common separator in Revit tag text)
                 int doubleSpace = tagText.IndexOf("  ");
                 if (doubleSpace > 0)
@@ -2478,6 +2587,82 @@ namespace Annotatix.Module.Core
             
             // Default: assume single line
             return tagText.Length;
+        }
+        
+        /// <summary>
+        /// Truncate trailing zeros after a decimal point in a text segment.
+        /// Revit displays numeric values without unnecessary trailing zeros,
+        /// so "100.0" renders as "100" and "0.0000" renders as "0".
+        /// We must account for this when estimating shelf length from TagText.
+        /// 
+        /// Examples:
+        ///   "ø100.0" → "ø100"  (trailing ".0" removed)
+        ///   "L0.0000" → "L0"   (trailing ".0000" removed)
+        ///   "L35.0000" → "L35" (trailing ".0000" removed)
+        ///   "VS 100M" → "VS 100M" (no decimal point, unchanged)
+        /// </summary>
+        private string TruncateTrailingZeros(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return text;
+            
+            // Process each numeric segment that contains a decimal point
+            // We use regex to find patterns like digits.digits and truncate trailing zeros
+            var result = new System.Text.StringBuilder(text.Length);
+            int i = 0;
+            while (i < text.Length)
+            {
+                // Check if we're at the start of a number (digit, or dot preceded by digit)
+                if (char.IsDigit(text[i]))
+                {
+                    // Find the end of the numeric segment: digits, optional dot, more digits
+                    int numStart = i;
+                    bool hasDot = false;
+                    int dotPos = -1;
+                    while (i < text.Length && (char.IsDigit(text[i]) || (text[i] == '.' && !hasDot)))
+                    {
+                        if (text[i] == '.')
+                        {
+                            hasDot = true;
+                            dotPos = i;
+                        }
+                        i++;
+                    }
+                    
+                    if (hasDot && dotPos >= 0)
+                    {
+                        // Extract the part after the dot and truncate trailing zeros
+                        string beforeDot = text.Substring(numStart, dotPos - numStart);
+                        string afterDot = text.Substring(dotPos + 1, i - dotPos - 1);
+                        string afterDotTrimmed = afterDot.TrimEnd('0');
+                        
+                        if (afterDotTrimmed.Length == 0)
+                        {
+                            // All digits after dot were zeros: "100.0" → "100"
+                            result.Append(beforeDot);
+                        }
+                        else
+                        {
+                            // Some non-zero digits after dot: "100.50" → "100.5"
+                            result.Append(beforeDot);
+                            result.Append('.');
+                            result.Append(afterDotTrimmed);
+                        }
+                    }
+                    else
+                    {
+                        // No decimal point, keep as-is
+                        result.Append(text, numStart, i - numStart);
+                    }
+                }
+                else
+                {
+                    result.Append(text[i]);
+                    i++;
+                }
+            }
+            
+            return result.ToString();
         }
         
         /// <summary>
@@ -3161,7 +3346,11 @@ namespace Annotatix.Module.Core
                             }
                         }
                         
-                        // Determine which extreme element is farther from the group center
+                        // Determine which extreme element to use as primary.
+                        // Strategy: prefer the element that is farther from the group center,
+                        // so that the annotation can point AWAY from the group.
+                        // - Rightmost element → annotation points RIGHT (away from group)
+                        // - Leftmost element → annotation points LEFT (away from group)
                         double centerViewX = 0;
                         int count = 0;
                         foreach (var p in allGroupPlans)
@@ -3172,6 +3361,8 @@ namespace Annotatix.Module.Core
                         }
                         if (count > 0) centerViewX /= count;
                         
+                        // Use rightmost as primary if it's farther from center than leftmost,
+                        // otherwise use leftmost. This ensures the annotation points away from the group.
                         bool isRightExtreme = (maxViewX - centerViewX) >= (centerViewX - minViewX);
                         AnnotationPlan extremePlan = isRightExtreme ? rightmostPlan : leftmostPlan;
                         if (extremePlan == null) extremePlan = primaryPlan;
