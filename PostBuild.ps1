@@ -18,10 +18,11 @@ $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $R25Dir = [System.IO.Path]::Combine($ProjectDir, "bin", "R25")
 $ReleaseDir = [System.IO.Path]::Combine($ProjectDir, "bin", "Release")
 $Net48Dir = [System.IO.Path]::Combine($ProjectDir, "bin", "Release", "net48")
+$DebugDir = [System.IO.Path]::Combine($ProjectDir, "bin", "Debug")
 
 # Find the most recent build output by checking PluginsManager.dll timestamp
 $candidates = @()
-foreach ($dir in @($Net48Dir, $ReleaseDir, $R25Dir)) {
+foreach ($dir in @($DebugDir, $Net48Dir, $ReleaseDir, $R25Dir)) {
     $testFile = [System.IO.Path]::Combine($dir, "PluginsManager.dll")
     if (Test-Path $testFile) {
         $ts = (Get-Item $testFile).LastWriteTime

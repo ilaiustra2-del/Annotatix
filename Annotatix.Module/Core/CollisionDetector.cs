@@ -114,13 +114,22 @@ namespace Annotatix.Module.Core
     }
     
     /// <summary>
+    /// Represents an occupied area with the element ID that created it
+    /// </summary>
+    public class OccupiedAreaRecord
+    {
+        public BBox2D BBox { get; set; }
+        public long ElementId { get; set; }
+    }
+    
+    /// <summary>
     /// Detects visual collisions between elements and annotation placements
     /// </summary>
     public class CollisionDetector
     {
         private readonly List<LineSegment2D> _modelLineSegments = new List<LineSegment2D>();
         private readonly List<LineSegment2D> _annotationLineSegments = new List<LineSegment2D>();
-        private readonly List<BBox2D> _occupiedAreas = new List<BBox2D>();
+        private readonly List<OccupiedAreaRecord> _occupiedAreas = new List<OccupiedAreaRecord>();
         private readonly List<VisualIntersection> _intersections = new List<VisualIntersection>();
         
         /// <summary>
@@ -173,12 +182,16 @@ namespace Annotatix.Module.Core
                 if (annot.HeadPosition != null)
                 {
                     // Estimate annotation bbox (simplified)
-                    _occupiedAreas.Add(new BBox2D
+                    _occupiedAreas.Add(new OccupiedAreaRecord
                     {
-                        MinX = annot.HeadPosition.X - 0.1,
-                        MaxX = annot.HeadPosition.X + 0.1,
-                        MinY = annot.HeadPosition.Y - 0.05,
-                        MaxY = annot.HeadPosition.Y + 0.05
+                        BBox = new BBox2D
+                        {
+                            MinX = annot.HeadPosition.X - 0.1,
+                            MaxX = annot.HeadPosition.X + 0.1,
+                            MinY = annot.HeadPosition.Y - 0.05,
+                            MaxY = annot.HeadPosition.Y + 0.05
+                        },
+                        ElementId = annot.ElementId
                     });
                 }
             }
@@ -274,7 +287,7 @@ namespace Annotatix.Module.Core
             // Check against occupied areas (other annotations)
             foreach (var occupied in _occupiedAreas)
             {
-                if (bbox.Intersects(occupied))
+                if (bbox.Intersects(occupied.BBox))
                     return true;
             }
             
@@ -383,7 +396,7 @@ namespace Annotatix.Module.Core
             foreach (var occupied in _occupiedAreas)
             {
                 // Expand the occupied area by margin
-                var expanded = occupied.Expand(annotationMargin);
+                var expanded = occupied.BBox.Expand(annotationMargin);
                         
                 // Check if leader segments intersect the occupied area
                 if (SegmentIntersectsBBox(verticalSegment, expanded) ||
@@ -553,12 +566,12 @@ namespace Annotatix.Module.Core
             // Check against occupied areas (other annotations)
             for (int i = 0; i < _occupiedAreas.Count; i++)
             {
-                if (bbox.Intersects(_occupiedAreas[i]))
+                if (bbox.Intersects(_occupiedAreas[i].BBox))
                 {
                     details.HasCollision = true;
                     details.CollisionTypes.Add("occupied_area");
-                    // Occupied areas don't have element IDs, use index
-                    details.CollidingElementIds.Add(-1 - i); // Negative to distinguish from real IDs
+                    // Use the element ID stored in the occupied area record
+                    details.CollidingElementIds.Add(_occupiedAreas[i].ElementId);
                 }
             }
             
@@ -682,14 +695,14 @@ namespace Annotatix.Module.Core
                 
             for (int i = 0; i < _occupiedAreas.Count; i++)
             {
-                var expanded = _occupiedAreas[i].Expand(annotationMargin);
+                var expanded = _occupiedAreas[i].BBox.Expand(annotationMargin);
                         
                 if (SegmentIntersectsBBox(verticalSegment, expanded) ||
                     SegmentIntersectsBBox(horizontalSegment, expanded))
                 {
                     details.HasCollision = true;
                     details.CollisionTypes.Add("leader_vs_occupied_area");
-                    details.CollidingElementIds.Add(-1 - i);
+                    details.CollidingElementIds.Add(_occupiedAreas[i].ElementId);
                 }
             }
         
@@ -699,9 +712,9 @@ namespace Annotatix.Module.Core
         /// <summary>
         /// Register an occupied area (placed annotation)
         /// </summary>
-        public void AddOccupiedArea(BBox2D bbox)
+        public void AddOccupiedArea(BBox2D bbox, long elementId = 0)
         {
-            _occupiedAreas.Add(bbox);
+            _occupiedAreas.Add(new OccupiedAreaRecord { BBox = bbox, ElementId = elementId });
         }
         
         /// <summary>

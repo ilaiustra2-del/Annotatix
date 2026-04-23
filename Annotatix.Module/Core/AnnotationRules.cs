@@ -91,6 +91,13 @@ namespace Annotatix.Module.Core
         
         /// <summary>Reference to the node in graph</summary>
         public SystemGraphNode Node { get; set; }
+        
+        /// <summary>
+        /// If true, PreferredPositions should be used as-is without reordering by orientation.
+        /// Used for group annotations where the position order is determined by the
+        /// extreme element direction (left/right) rather than element orientation.
+        /// </summary>
+        public bool OverridePositionOrder { get; set; } = false;
     }
     
     /// <summary>

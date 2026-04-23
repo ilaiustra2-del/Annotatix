@@ -59,6 +59,13 @@ namespace Annotatix.Module.Core
         public double FinalElbowHeightMm { get; set; }
         public int TotalIterations { get; set; }
         public string FailureReason { get; set; }
+        public double BboxMinX { get; set; }
+        public double BboxMinY { get; set; }
+        public double BboxMaxX { get; set; }
+        public double BboxMaxY { get; set; }
+        public double BboxWidth { get; set; }
+        public double BboxHeight { get; set; }
+        public string BboxCoordSystem { get; set; } // "view" for 3D, "model" for 2D
     }
 
     /// <summary>
@@ -136,7 +143,8 @@ namespace Annotatix.Module.Core
                               "Orientation;OrientationDesc;" +
                               "AnnotationFamily;AnnotationType;AnnotationContentType;" +
                               "TagText;FinalTypeName;ShelfLengthMm;CalculatedWidthMm;" +
-                              "Success;FinalPosition;FinalElbowHeightMm;TotalIterations;FailureReason");
+                              "Success;FinalPosition;FinalElbowHeightMm;TotalIterations;FailureReason;" +
+                              "BboxMinX;BboxMinY;BboxMaxX;BboxMaxY;BboxWidth;BboxHeight;BboxCoordSystem");
                 
                 foreach (var r in placementRecords)
                 {
@@ -146,7 +154,8 @@ namespace Annotatix.Module.Core
                                   $"{r.OrientationSymbol};{Esc(r.OrientationDescription)};" +
                                   $"{Esc(r.AnnotationFamily)};{Esc(r.AnnotationType)};{r.AnnotationContentType};" +
                                   $"{Esc(r.TagText)};{Esc(r.FinalTypeName)};{Fmt(r.ShelfLengthMm)};{Fmt(r.CalculatedWidthMm)};" +
-                                  $"{r.Success};{Esc(r.FinalPosition)};{Fmt(r.FinalElbowHeightMm)};{r.TotalIterations};{Esc(r.FailureReason)}");
+                                  $"{r.Success};{Esc(r.FinalPosition)};{Fmt(r.FinalElbowHeightMm)};{r.TotalIterations};{Esc(r.FailureReason)};" +
+                                  $"{Fmt(r.BboxMinX)};{Fmt(r.BboxMinY)};{Fmt(r.BboxMaxX)};{Fmt(r.BboxMaxY)};{Fmt(r.BboxWidth)};{Fmt(r.BboxHeight)};{r.BboxCoordSystem}");
                 }
 
                 sb.AppendLine();
