@@ -173,27 +173,13 @@ namespace Annotatix.Module.Core
                 if (viewTextHeight < 0.02) viewTextHeight = 0.02;
                 if (viewPad < 0.005) viewPad = 0.005;
                 
-                // Build bbox: headView is at shelf TIP (far end from leader connection)
-                // Shelf extends from headView TOWARD the element by viewShelfWidth
-                bool isRight = position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight || position == AnnotationPosition.HorizontalRight;
-                bool isTop = position == AnnotationPosition.TopLeft || position == AnnotationPosition.TopRight;
-                bool isBottom = position == AnnotationPosition.BottomLeft || position == AnnotationPosition.BottomRight;
-                bool isHorizontal = position == AnnotationPosition.HorizontalLeft || position == AnnotationPosition.HorizontalRight;
-                
+                // Build bbox: Revit's shelf always extends RIGHT from TagHeadPosition.
+                // - For LEFT-facing: head is at LEFT TIP, shelf extends RIGHT. BBox: [head-pad, head+shelf+pad]
+                // - For RIGHT-facing: head is at NEAR EDGE (left side of shelf), shelf extends RIGHT. BBox: [head-pad, head+shelf+pad]
+                // Both cases have the same formula.
                 var bbox = new BBox2D();
-                
-                if (isRight)
-                {
-                    // Head is at right tip, shelf extends LEFT toward element
-                    bbox.MinX = headView.X - viewShelfWidth - viewPad;
-                    bbox.MaxX = headView.X + viewPad;
-                }
-                else // Left
-                {
-                    // Head is at left tip, shelf extends RIGHT toward element
-                    bbox.MinX = headView.X - viewPad;
-                    bbox.MaxX = headView.X + viewShelfWidth + viewPad;
-                }
+                bbox.MinX = headView.X - viewPad;
+                bbox.MaxX = headView.X + viewShelfWidth + viewPad;
                 
                 // Y extent: text is centered on the shelf line (headView.Y)
                 // For 2-line tags, text extends both above and below the shelf
@@ -812,6 +798,12 @@ namespace Annotatix.Module.Core
                         }
                                             
                         // Compute leader end, elbow, and head positions in 2D view coordinates
+                        // CRITICAL: Revit's shelf always extends RIGHT from TagHeadPosition.
+                        // - For LEFT-facing: head at LEFT TIP = leaderEnd - (shelfGap + shelfWidth)
+                        // - For RIGHT-facing: head at NEAR EDGE = leaderEnd + shelfGap
+                        bool isRightPos = position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight || position == AnnotationPosition.HorizontalRight;
+                        bool isLeftPos = position == AnnotationPosition.TopLeft || position == AnnotationPosition.BottomLeft || position == AnnotationPosition.HorizontalLeft;
+                        
                         leaderEndViewX = locationViewCol.X;
                         leaderEndViewY = locationViewCol.Y;
                                             
@@ -820,10 +812,10 @@ namespace Annotatix.Module.Core
                             // Horizontal: leader goes sideways, no vertical segment
                             elbowViewX = locationViewCol.X;
                             elbowViewY = locationViewCol.Y;
-                            if (position == AnnotationPosition.HorizontalLeft)
+                            if (isLeftPos)
                                 headViewX = locationViewCol.X - viewOffsetH - viewShelfWidth;
-                            else
-                                headViewX = locationViewCol.X + viewOffsetH + viewShelfWidth;
+                            else // isRightPos
+                                headViewX = locationViewCol.X + viewOffsetH;
                             headViewY = locationViewCol.Y;
                         }
                         else
@@ -835,30 +827,18 @@ namespace Annotatix.Module.Core
                             else
                                 elbowViewY = locationViewCol.Y - viewOffsetV;
                                                 
-                            if (position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight)
-                                headViewX = locationViewCol.X + viewOffsetH + viewShelfWidth;
-                            else
+                            if (isRightPos)
+                                headViewX = locationViewCol.X + viewOffsetH;
+                            else // isLeftPos
                                 headViewX = locationViewCol.X - viewOffsetH - viewShelfWidth;
                             headViewY = elbowViewY;
                         }
                                             
                         // Build collision bbox in 2D view coordinates
+                        // Shelf always extends RIGHT from head in both cases.
                         var candidateBboxView = new BBox2D();
-                        bool isRightPos = position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight || position == AnnotationPosition.HorizontalRight;
-                        bool isLeftPos = position == AnnotationPosition.TopLeft || position == AnnotationPosition.BottomLeft || position == AnnotationPosition.HorizontalLeft;
-                                            
-                        if (isRightPos)
-                        {
-                            // Head is at right tip, shelf extends LEFT toward element
-                            candidateBboxView.MinX = headViewX - viewShelfWidth - viewPad;
-                            candidateBboxView.MaxX = headViewX + viewPad;
-                        }
-                        else
-                        {
-                            // Head is at left tip, shelf extends RIGHT toward element
-                            candidateBboxView.MinX = headViewX - viewPad;
-                            candidateBboxView.MaxX = headViewX + viewShelfWidth + viewPad;
-                        }
+                        candidateBboxView.MinX = headViewX - viewPad;
+                        candidateBboxView.MaxX = headViewX + viewShelfWidth + viewPad;
                                             
                         // Y extent: text is centered on the shelf line (headViewY)
                         // For 2-line tags, text extends both above and below the shelf
@@ -1407,25 +1387,35 @@ namespace Annotatix.Module.Core
             AnnotationSize size,
             double horizontalOffset)
         {
-            // TagHeadPosition = END of the leader line (where tag text is displayed)
-            // The leader goes: LeaderEnd -> Elbow -> Head(TagHeadPosition)
-            // For Left positions: Head is LEFT of Elbow by (shelfWidth + shelfGap)
-            // For Right positions: Head is RIGHT of Elbow by (shelfWidth + shelfGap)
-            // For Horizontal: Head is directly left/right of LeaderEnd by (shelfWidth + shelfGap)
-            // horizontalOffset = distance from element edge to nearest annotation edge (in model feet)
-            // This is calculated by CalculateOptimalOffset based on element size (1-4mm on paper)
-            double shelfGapModel = horizontalOffset; // Use the dynamic offset for consistency with collision detection
-            double shelfWidthModel = size.Width; // shelf width in model feet
+            // TagHeadPosition = point where leader meets the tag.
+            // CRITICAL: Revit's tag shelf always extends to the RIGHT from TagHeadPosition.
+            // - For LEFT-facing: head at LEFT TIP = leaderEnd - (shelfGap + shelfWidth)
+            //   Shelf extends RIGHT from tip, covering full width. Near edge = head + shelfWidth.
+            //   Gap = leaderEndViewX - nearEdge = shelfGap. ✓
+            // - For RIGHT-facing: head at NEAR EDGE = leaderEnd + shelfGap
+            //   Shelf extends RIGHT from near edge. Gap = headViewX - leaderEndViewX = shelfGap. ✓
+            double shelfGapModel = horizontalOffset;
+            double shelfWidthModel = size.Width;
             
             bool isTop = position == AnnotationPosition.TopLeft || position == AnnotationPosition.TopRight;
             bool isBottom = position == AnnotationPosition.BottomLeft || position == AnnotationPosition.BottomRight;
             bool isHorizontal = position == AnnotationPosition.HorizontalLeft || position == AnnotationPosition.HorizontalRight;
+            bool isRight = position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight || position == AnnotationPosition.HorizontalRight;
+            bool isLeft = position == AnnotationPosition.TopLeft || position == AnnotationPosition.BottomLeft || position == AnnotationPosition.HorizontalLeft;
+            
+            double headOffset;
+            if (isLeft)
+            {
+                headOffset = shelfGapModel + shelfWidthModel; // tip position
+            }
+            else // isRight
+            {
+                headOffset = shelfGapModel; // near edge position
+            }
             
             if (isHorizontal)
             {
-                // Horizontal: leader goes SIDEWAYS from element
-                // Head is at shelf tip (far end from element)
-                double horizontalDist = shelfGapModel + shelfWidthModel;
+                double horizontalDist = headOffset;
                 return position switch
                 {
                     AnnotationPosition.HorizontalLeft => (
@@ -1442,16 +1432,14 @@ namespace Annotatix.Module.Core
             else
             {
                 // L-shaped (Top/Bottom): leader goes UP/DOWN then SIDEWAYS
-                // Head is at shelf tip, (shelfWidth + shelfGap) from leader end X
                 double headX;
-                double sideOffset = shelfGapModel + shelfWidthModel;
-                if (position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight)
+                if (isRight)
                 {
-                    headX = location.X + sideOffset;
+                    headX = location.X + headOffset;
                 }
-                else // TopLeft, BottomLeft
+                else // isLeft
                 {
-                    headX = location.X - sideOffset;
+                    headX = location.X - headOffset;
                 }
                 
                 double headY = isTop ? location.Y + elbowHeight : location.Y - elbowHeight;
@@ -1493,20 +1481,14 @@ namespace Annotatix.Module.Core
             
             var bbox = new BBox2D();
             
-            // X extent: headPos is at the shelf tip
-            // Shelf extends from headPos TOWARD the element
-            if (isRight)
-            {
-                // Head is at right tip, shelf extends LEFT toward element
-                bbox.MinX = headPos.X - shelfWidth - pad; // left edge (near element)
-                bbox.MaxX = headPos.X + pad;              // right edge (tip + padding)
-            }
-            else // Left
-            {
-                // Head is at left tip, shelf extends RIGHT toward element
-                bbox.MinX = headPos.X - pad;               // left edge (tip - padding)
-                bbox.MaxX = headPos.X + shelfWidth + pad;   // right edge (near element)
-            }
+            // X extent: depends on direction because Revit's shelf always extends RIGHT from TagHeadPosition.
+            // - For LEFT-facing: head is at LEFT TIP, shelf extends RIGHT toward element.
+            //   BBox: from (headPos.X - pad) to (headPos.X + shelfWidth + pad)
+            // - For RIGHT-facing: head is at NEAR EDGE (left side of shelf), shelf extends RIGHT away from element.
+            //   BBox: from (headPos.X - pad) to (headPos.X + shelfWidth + pad)
+            // Both cases have the same bbox formula since shelf extends RIGHT from head in both cases!
+            bbox.MinX = headPos.X - pad;               // left edge (head position - padding)
+            bbox.MaxX = headPos.X + shelfWidth + pad;   // right edge (head + shelf + padding)
             
             // Y extent: text is centered on the shelf line (headPos.Y)
             // For 2-line tags, text extends both above and below the shelf
@@ -2426,29 +2408,51 @@ namespace Annotatix.Module.Core
             if (viewShelfGap < 0.005) viewShelfGap = 0.005;
             if (viewShelfHeight < 0.02) viewShelfHeight = 0.02;
             
-            double sideOffsetView = viewShelfGap + viewShelfWidth; // total horizontal distance from leader end to head
+            bool isRight = position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight || position == AnnotationPosition.HorizontalRight;
+            bool isLeft = position == AnnotationPosition.TopLeft || position == AnnotationPosition.BottomLeft || position == AnnotationPosition.HorizontalLeft;
             
-            DebugLogger.Log($"[GREEDY-PLACEMENT] 3D view offsets (paper-space direct): viewShelfWidth={viewShelfWidth:F3}ft, viewShelfGap={viewShelfGap:F3}ft, viewShelfHeight={viewShelfHeight:F3}ft");
+            // CRITICAL: Revit's tag shelf always extends to the RIGHT from TagHeadPosition.
+            // This means:
+            // - For LEFT-facing annotations: TagHeadPosition must be at the LEFT TIP of the shelf.
+            //   The shelf extends RIGHT from the tip, covering the full width toward the element.
+            //   Near edge = headViewX + shelfWidth. Gap = leaderEndViewX - nearEdge = shelfGap. ✓
+            // - For RIGHT-facing annotations: TagHeadPosition must be at the NEAR EDGE of the shelf
+            //   (closest to the element), NOT the tip. The shelf extends RIGHT from the near edge.
+            //   Near edge = headViewX. Gap = headViewX - leaderEndViewX = shelfGap. ✓
+            // If we set headViewX at the TIP for RIGHT-facing, the shelf extends further RIGHT
+            // (away from element), creating a gap of shelfGap + shelfWidth instead of just shelfGap.
+            
+            double headOffsetView;
+            if (isLeft)
+            {
+                // Left-facing: head at LEFT TIP = leaderEnd - (shelfGap + shelfWidth)
+                headOffsetView = viewShelfGap + viewShelfWidth;
+            }
+            else // isRight
+            {
+                // Right-facing: head at NEAR EDGE = leaderEnd + shelfGap
+                headOffsetView = viewShelfGap;
+            }
+            
+            DebugLogger.Log($"[GREEDY-PLACEMENT] 3D view offsets (paper-space direct): viewShelfWidth={viewShelfWidth:F3}ft, viewShelfGap={viewShelfGap:F3}ft, viewShelfHeight={viewShelfHeight:F3}ft, direction={((isLeft)?"LEFT":"RIGHT")}, headOffset={headOffsetView:F3}ft");
             
             if (isHorizontal)
             {
                 // Horizontal: straight line on screen, headViewY = leaderEndViewY
-                // Head is at (shelfWidth + shelfGap) from leader end horizontally
                 headViewY = leaderEndViewY;
                 
-                if (position == AnnotationPosition.HorizontalLeft)
+                if (isLeft)
                 {
-                    headViewX = leaderEndViewX - sideOffsetView;
+                    headViewX = leaderEndViewX - headOffsetView;
                 }
-                else // HorizontalRight
+                else // isRight
                 {
-                    headViewX = leaderEndViewX + sideOffsetView;
+                    headViewX = leaderEndViewX + headOffsetView;
                 }
             }
             else
             {
                 // L-shaped (Top/Bottom): leader goes UP/DOWN then SIDEWAYS
-                // Head is at shelf tip, (shelfWidth + shelfGap) from leader end X
                 if (isTop)
                 {
                     headViewY = leaderEndViewY + elbowHeight;
@@ -2458,13 +2462,13 @@ namespace Annotatix.Module.Core
                     headViewY = leaderEndViewY - elbowHeight;
                 }
                 
-                if (position == AnnotationPosition.TopRight || position == AnnotationPosition.BottomRight)
+                if (isRight)
                 {
-                    headViewX = leaderEndViewX + sideOffsetView;
+                    headViewX = leaderEndViewX + headOffsetView;
                 }
-                else // TopLeft, BottomLeft
+                else // isLeft
                 {
-                    headViewX = leaderEndViewX - sideOffsetView;
+                    headViewX = leaderEndViewX - headOffsetView;
                 }
             }
             
