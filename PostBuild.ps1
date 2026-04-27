@@ -2,7 +2,8 @@
 param(
     [string]$ProjectDir,
     [string]$TargetDir,
-    [string]$TargetFileName
+    [string]$TargetFileName,
+    [switch]$SkipDeploy
 )
 
 Write-Host "========================================"
@@ -403,24 +404,94 @@ if ($staleDlls.Count -gt 0) {
 
 Write-Host ""
 Write-Host "========================================"
-Write-Host "MANUAL DEPLOYMENT MODE"
+Write-Host "AUTO-DEPLOYMENT TO REVIT ADDINS"
 Write-Host "========================================"
-Write-Host "Files are ready in: $OutputDir"
-Write-Host ""
-Write-Host "To install for Revit 2024:"
-Write-Host "1. Close Revit completely"
-Write-Host "2. Copy contents of '$OutputDir\2024\annotatix_dependencies' to:"
-Write-Host "   %APPDATA%\Autodesk\Revit\Addins\2024\annotatix_dependencies\"
-Write-Host "3. Copy '$OutputDir\2024\Annotatix.addin' to:"
-Write-Host "   %APPDATA%\Autodesk\Revit\Addins\2024\"
-Write-Host ""
-Write-Host "To install for Revit 2025:"
-Write-Host "1. Close Revit completely"
-Write-Host "2. Copy contents of '$OutputDir\2025\annotatix_dependencies' to:"
-Write-Host "   %APPDATA%\Autodesk\Revit\Addins\2025\annotatix_dependencies\"
-Write-Host "3. Copy '$OutputDir\2025\Annotatix.addin' to:"
-Write-Host "   %APPDATA%\Autodesk\Revit\Addins\2025\"
-Write-Host "========================================"
+
+if ($SkipDeploy) {
+    Write-Host "Skipping deployment (SkipDeploy flag set)."
+} else {
+    $deployResults = @()
+    $lockedFiles = @()
+    $successFiles = @()
+
+    foreach ($RevitVer in $RevitVersions) {
+        $sourceDir = [System.IO.Path]::Combine($OutputDir, $RevitVer, "annotatix_dependencies")
+        $addinsDir = [System.IO.Path]::Combine($env:APPDATA, "Autodesk", "Revit", "Addins", $RevitVer, "annotatix_dependencies")
+        $addinFile = [System.IO.Path]::Combine($OutputDir, $RevitVer, "Annotatix.addin")
+        $addinDest = [System.IO.Path]::Combine($env:APPDATA, "Autodesk", "Revit", "Addins", $RevitVer, "Annotatix.addin")
+
+        Write-Host ""
+        Write-Host "Deploying to Revit $RevitVer..."
+        Write-Host "  Source: $sourceDir"
+        Write-Host "  Target: $addinsDir"
+
+        # Copy all annotatix_dependencies files
+        if (Test-Path $sourceDir) {
+            $allSourceFiles = Get-ChildItem -Path $sourceDir -File -Recurse
+            foreach ($srcFile in $allSourceFiles) {
+                $relativePath = $srcFile.FullName.Substring($sourceDir.Length + 1)
+                $destFile = [System.IO.Path]::Combine($addinsDir, $relativePath)
+                $destDir = [System.IO.Path]::GetDirectoryName($destFile)
+
+                if (-not (Test-Path $destDir)) {
+                    New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+                }
+
+                try {
+                    $srcSize = $srcFile.Length
+                    Copy-Item -Path $srcFile.FullName -Destination $destFile -Force -ErrorAction Stop
+
+                    # VERIFY: check that the file was actually updated
+                    if (Test-Path $destFile) {
+                        $destSize = (Get-Item $destFile).Length
+                        if ($destSize -eq $srcSize) {
+                            $successFiles += "$RevitVer/$relativePath"
+                        } else {
+                            # File was not updated (likely locked by Revit)
+                            $lockedFiles += "$RevitVer/$relativePath (expected $srcSize bytes, got $destSize bytes)"
+                        }
+                    } else {
+                        $lockedFiles += "$RevitVer/$relativePath (file missing after copy)"
+                    }
+                } catch {
+                    $lockedFiles += "$RevitVer/$relativePath (LOCKED: $($_.Exception.Message))"
+                }
+            }
+        } else {
+            Write-Host "  WARNING: Source directory not found: $sourceDir"
+        }
+
+        # Copy .addin file
+        if (Test-Path $addinFile) {
+            try {
+                Copy-Item -Path $addinFile -Destination $addinDest -Force -ErrorAction Stop
+                Write-Host "  Deployed: $RevitVer/Annotatix.addin"
+            } catch {
+                Write-Host "  WARNING: Could not copy .addin file: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    # Deployment summary
+    Write-Host ""
+    Write-Host "----------------------------------------"
+    Write-Host "DEPLOYMENT SUMMARY"
+    Write-Host "----------------------------------------"
+    Write-Host "  Successfully deployed: $($successFiles.Count) file(s)"
+    if ($lockedFiles.Count -gt 0) {
+        Write-Host ""
+        Write-Host "  *** LOCKED FILES - NOT UPDATED ***"
+        foreach ($locked in $lockedFiles) {
+            Write-Host "    X $locked" -ForegroundColor Red
+        }
+        Write-Host ""
+        Write-Host "  CAUSE: Revit is likely running and has these files locked." -ForegroundColor Yellow
+        Write-Host "  FIX: Close Revit, then run this script again or copy manually:" -ForegroundColor Yellow
+        Write-Host "    xcopy \"$($OutputDir)\2025\annotatix_dependencies\" \"$addinsDir\" /E /Y /I" -ForegroundColor Yellow
+    } else {
+        Write-Host "  All files deployed successfully!" -ForegroundColor Green
+    }
+}
 
 Write-Host ""
 Write-Host "========================================"

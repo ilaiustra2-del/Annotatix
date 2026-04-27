@@ -93,3 +93,6 @@ dwg2rvt_ver2.0/
 logs/
 *.txt
 !BuildNumber.txt
+
+# Exclude local deploy symlink
+%APPDATA%/
