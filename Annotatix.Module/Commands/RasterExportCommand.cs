@@ -19,7 +19,6 @@ namespace Annotatix.Module.Commands
     public class RasterExportCommand : IExternalCommand
     {
         // Constants
-        private const double GRID_SIZE_MM = 3.0;
         private const double DPI = 150.0;
         private const double MM_PER_FT = 304.8;
         private const double PIXELS_PER_MM = DPI / 25.4;
@@ -326,6 +325,24 @@ namespace Annotatix.Module.Commands
 
                 // ── Step 3-6: Convert to paper mm and align to 3mm grid ──
                 int viewScale = view.Scale;
+
+                // ── Apply edge margin (expands bounds outward on all 4 sides) ──
+                if (AnnotatixSettings.EdgeMarginMm > 0)
+                {
+                    // Convert margin from paper mm to model feet
+                    double margin_ft = AnnotatixSettings.EdgeMarginMm / MM_PER_FT * viewScale;
+
+                    DebugLogger.Log($"[RASTER-EXPORT] Applying edge margin: {AnnotatixSettings.EdgeMarginMm} mm = {margin_ft:F6} ft per side");
+
+                    // Always subtract from min, add to max — expands bounds outward
+                    vxMin -= margin_ft;
+                    vxMax += margin_ft;
+                    vyMin -= margin_ft;
+                    vyMax += margin_ft;
+
+                    DebugLogger.Log($"[RASTER-EXPORT] After margin (ft): X=[{vxMin:F6}, {vxMax:F6}], Y=[{vyMin:F6}, {vyMax:F6}]");
+                }
+
                 double modelW_ft = vxMax - vxMin;
                 double modelH_ft = vyMax - vyMin;
 
@@ -336,11 +353,11 @@ namespace Annotatix.Module.Commands
                 DebugLogger.Log($"[RASTER-EXPORT] Paper size (mm): {paperW_mm:F2} x {paperH_mm:F2}");
 
                 // Align to 3mm grid (ceiling ensures crop always >= element bounds)
-                int cols = (int)Math.Ceiling(paperW_mm / GRID_SIZE_MM);
-                int rows = (int)Math.Ceiling(paperH_mm / GRID_SIZE_MM);
-
-                double adjustedPaperW_mm = cols * GRID_SIZE_MM;
-                double adjustedPaperH_mm = rows * GRID_SIZE_MM;
+                int cols = (int)Math.Ceiling(paperW_mm / AnnotatixSettings.GridStepMm);
+                int rows = (int)Math.Ceiling(paperH_mm / AnnotatixSettings.GridStepMm);
+                
+                double adjustedPaperW_mm = cols * AnnotatixSettings.GridStepMm;
+                double adjustedPaperH_mm = rows * AnnotatixSettings.GridStepMm;
 
                 DebugLogger.Log($"[RASTER-EXPORT] Grid: {cols} cols x {rows} rows = {cols * rows} cells");
                 DebugLogger.Log($"[RASTER-EXPORT] Grid-aligned paper size (mm): {adjustedPaperW_mm:F2} x {adjustedPaperH_mm:F2}");
@@ -403,13 +420,62 @@ namespace Annotatix.Module.Commands
                         FileInfo fi = new FileInfo(exportedPath);
                         DebugLogger.Log($"[RASTER-EXPORT] Export successful: {exportedPath} ({fi.Length / 1024} KB)");
 
+                        // Save grid metadata sidecar for later image analysis
+                        GridMetadata meta = new GridMetadata
+                        {
+                            Cols = cols,
+                            Rows = rows,
+                            CellSizeMm = AnnotatixSettings.GridStepMm,
+                            PaperWidthMm = adjustedPaperW_mm,
+                            PaperHeightMm = adjustedPaperH_mm,
+                            PixelWidth = pixelWidth,
+                            PixelHeight = pixelHeight,
+                            Dpi = DPI,
+                            ViewXmin = vxMin,
+                            ViewYmin = vyMin,
+                            ViewXmax = vxMax,
+                            ViewYmax = vyMax,
+                            OriginX = viewOrigin.X,
+                            OriginY = viewOrigin.Y,
+                            OriginZ = viewOrigin.Z,
+                            RightDirX = viewRight.X,
+                            RightDirY = viewRight.Y,
+                            RightDirZ = viewRight.Z,
+                            UpDirX = viewUp.X,
+                            UpDirY = viewUp.Y,
+                            UpDirZ = viewUp.Z,
+                            ViewScale = viewScale,
+                            OccupancyThreshold = AnnotatixSettings.OccupancyThreshold,
+                        };
+                        meta.Save(exportedPath);
+
+                        // ── Auto-analyze the exported image ──
+                        int occupiedCount = 0;
+                        string analysisSummary = "";
+                        try
+                        {
+                            ImageAnalyzer analyzer = new ImageAnalyzer(meta);
+                            var results = analyzer.AnalyzeImage(exportedPath);
+                            analyzer.SaveResults(results, exportedPath);
+                            analyzer.CreateDebugOverlay(results, exportedPath);
+                            occupiedCount = results.FindAll(c => c.IsOccupied).Count;
+                            analysisSummary = $"\nAnalysis: {occupiedCount} occupied / {results.Count} total (>{meta.OccupancyThreshold*100:F0}% fill)";
+                            DebugLogger.Log($"[RASTER-EXPORT] Auto-analysis complete: {occupiedCount} occupied / {results.Count} total (threshold={meta.OccupancyThreshold})");
+                        }
+                        catch (Exception anEx)
+                        {
+                            DebugLogger.Log($"[RASTER-EXPORT] Auto-analysis failed: {anEx.Message}");
+                            analysisSummary = $"\nAnalysis failed: {anEx.Message}";
+                        }
+
                         TaskDialog.Show("Raster Export",
                             $"Export successful!\n\n" +
                             $"File: {exportedPath}\n" +
                             $"Size: {pixelWidth} x {pixelHeight} px\n" +
                             $"Grid: {cols} x {rows} = {cols * rows} cells\n" +
                             $"Paper: {adjustedPaperW_mm:F1} x {adjustedPaperH_mm:F1} mm\n" +
-                            $"Elements processed: {elementCount}");
+                            $"Elements processed: {elementCount}" +
+                            analysisSummary);
                     }
                     else
                     {

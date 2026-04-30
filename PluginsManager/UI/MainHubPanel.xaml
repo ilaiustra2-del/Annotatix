@@ -209,8 +209,26 @@
                                         </StackPanel>
                                     </Border>
                                     
-                                    <!-- Placeholder 1-3 -->
-                                    <Border Style="{StaticResource PluginCardDisabled}"/>
+                                    <!-- Annotatix Plugin -->
+                                    <Border x:Name="pnlAnnotatix"
+                                            Style="{StaticResource PluginCardDisabled}"
+                                            MouseLeftButtonUp="Annotatix_Click">
+                                        <StackPanel>
+                                            <Image x:Name="imgAnnotatixIcon"
+                                                   Width="64"
+                                                   Height="64"
+                                                   Margin="0,0,0,8"
+                                                   Stretch="Uniform"/>
+                                            <TextBlock Text="Annotatix"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       Foreground="#333333"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Placeholder 1-2 -->
                                     <Border Style="{StaticResource PluginCardDisabled}"/>
                                     <Border Style="{StaticResource PluginCardDisabled}"/>
                                 </WrapPanel>

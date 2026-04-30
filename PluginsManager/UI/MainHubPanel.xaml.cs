@@ -50,6 +50,10 @@ namespace PluginsManager.UI
         private Commands.TracerCreateZConnectionHandler _tracerCreateZConnectionHandler;
         
         // Cache for module panels to avoid recreating them
+        private object _annotatixPanelContent;
+        // Annotatix ExternalEvent (created when module is loaded)
+        private ExternalEvent _annotatixEvent;
+        private object _annotatixHandler;
         private object _familySyncPanelContent;
         private object _autoNumberingPanelContent;
         private object _clashResolvePanelContent;
@@ -127,6 +131,9 @@ namespace PluginsManager.UI
                 
                 // Load FamilySync icon
                 LoadIcon(Path.Combine(iconsPath, "familysync80.png"), imgFamilySyncIcon);
+                
+                // Load Annotatix icon
+                LoadIcon(Path.Combine(iconsPath, "annotatix80.png"), imgAnnotatixIcon);
                 
                 // Load Tracer icon
                 LoadIcon(Path.Combine(iconsPath, "tracer80.png"), imgTracerIcon);
@@ -385,6 +392,83 @@ namespace PluginsManager.UI
         }
         
         // REMOVED: LoadFamilySyncModule() - now loaded dynamically after authentication
+        
+        private void Annotatix_Click(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                Core.DebugLogger.Log("");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("[HUB] User clicked Annotatix button");
+        
+                // Check if panel already created (cached)
+                if (_annotatixPanelContent != null)
+                {
+                    Core.DebugLogger.Log("[HUB] Using cached Annotatix panel content");
+                    MainContent.Content = _annotatixPanelContent;
+                    RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
+                    System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
+                    TitleBar.Visibility = System.Windows.Visibility.Visible;
+                    txtModuleTitle.Text = "Annotatix - Управление аннотациями и растровый анализ";
+                    Core.DebugLogger.Log("[HUB] Annotatix panel switched (from cache)");
+                    Core.DebugLogger.LogSeparator('-');
+                    Core.DebugLogger.Log("");
+                    return;
+                }
+        
+                Core.DebugLogger.Log("[HUB] Loading Annotatix module panel (first time)...");
+        
+                var module = Core.DynamicModuleLoader.GetModuleInstance("annotatix");
+                if (module == null)
+                {
+                    MessageBox.Show("Модуль Annotatix не загружен. Проверьте наличие файла Annotatix.Module.dll.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+        
+                Core.DebugLogger.Log($"[HUB] Module found: {module.ModuleName} v{module.ModuleVersion}");
+                
+                object[] parameters = (_annotatixEvent != null && _annotatixHandler != null)
+                    ? new object[] { _uiApp, _annotatixHandler, _annotatixEvent }
+                    : new object[] { _uiApp };
+                
+                var panel = module.CreatePanel(parameters);
+                if (panel == null)
+                {
+                    MessageBox.Show("Не удалось создать панель модуля Annotatix.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+        
+                Core.DebugLogger.Log("[HUB] Panel created successfully");
+        
+                var panelContent = panel.Content;
+                if (panelContent == null)
+                {
+                    MessageBox.Show("Панель модуля не содержит контента.",
+                        "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+        
+                Core.DebugLogger.Log($"[HUB] Panel content type: {panelContent.GetType().Name}");
+        
+                _annotatixPanelContent = panelContent;
+                Core.DebugLogger.Log("[HUB] Panel content cached for future use");
+                Core.DebugLogger.LogSeparator('-');
+                Core.DebugLogger.Log("");
+        
+                MainContent.Content = panelContent;
+                RightSidebar.Visibility = System.Windows.Visibility.Collapsed;
+                System.Windows.Controls.Grid.SetColumnSpan(ContentArea, 2);
+                TitleBar.Visibility = System.Windows.Visibility.Visible;
+                txtModuleTitle.Text = "Annotatix - Управление аннотациями и растровый анализ";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка при загрузке панели Annotatix:\n{ex.Message}\n\n{ex.StackTrace}",
+                    "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
         
         private void Hvac_Click(object sender, MouseButtonEventArgs e)
         {
@@ -775,6 +859,8 @@ namespace PluginsManager.UI
                     pnlHvac.Opacity = 0.5;
                     pnlFamilySync.IsEnabled = false;
                     pnlFamilySync.Opacity = 0.5;
+                    pnlAnnotatix.IsEnabled = false;
+                    pnlAnnotatix.Opacity = 0.5;
                 }
                 return;
             }
@@ -1088,6 +1174,8 @@ namespace PluginsManager.UI
                     pnlDwg2rvt.Opacity = 0.5;
                     pnlHvac.IsEnabled = false;
                     pnlHvac.Opacity = 0.5;
+                    pnlAnnotatix.IsEnabled = false;
+                    pnlAnnotatix.Opacity = 0.5;
                     
                     // Now re-activate based on fresh data and file availability
                     ActivateModuleButtons(result.Modules);
@@ -1550,8 +1638,48 @@ namespace PluginsManager.UI
                 
                 if (Core.DynamicModuleLoader.LoadModule("annotatix", moduleDllPath))
                 {
-                    System.Diagnostics.Debug.WriteLine("[HUB] Annotatix module loaded successfully");
+                    pnlAnnotatix.IsEnabled = true;
+                    pnlAnnotatix.Opacity = 1.0;
+                    System.Diagnostics.Debug.WriteLine("[HUB] ✓ Annotatix module loaded and activated");
                     Core.DebugLogger.Log("[APP-AUTOAUTH] Module loaded: annotatix");
+
+                    // Create Annotatix ExternalEvent only if not already created
+                    if (_annotatixEvent == null)
+                    {
+                        try
+                        {
+                            System.Diagnostics.Debug.WriteLine("[HUB] Attempting to create Annotatix ExternalEvent...");
+                            var handlerType = Type.GetType("Annotatix.Module.UI.AnnotatixPanelHandler, Annotatix.Module");
+
+                            if (handlerType != null)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[HUB] Found type: {handlerType.FullName}");
+                                _annotatixHandler = Activator.CreateInstance(handlerType);
+                                System.Diagnostics.Debug.WriteLine("[HUB] Created handler instance");
+
+                                var iExternalEventHandler = _annotatixHandler as IExternalEventHandler;
+                                if (iExternalEventHandler != null)
+                                {
+                                    _annotatixEvent = ExternalEvent.Create(iExternalEventHandler);
+                                    System.Diagnostics.Debug.WriteLine("[HUB] Annotatix ExternalEvent created successfully");
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Debug.WriteLine("[HUB] Handler does not implement IExternalEventHandler");
+                                }
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine("[HUB] AnnotatixPanelHandler type not found via reflection");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[HUB] Failed to create Annotatix ExternalEvent: {ex.Message}");
+                            _annotatixHandler = null;
+                            _annotatixEvent = null;
+                        }
+                    }
                 }
                 else
                 {

@@ -63,4 +63,10 @@
     <Compile Include="Annotatix.Module\UI\*.cs" />
   </ItemGroup>
 
+  <!-- Include XAML files for WPF panels -->
+  <ItemGroup>
+    <Page Include="Annotatix.Module\UI\*Panel.xaml" SubType="Designer" Generator="MSBuild:Compile" />
+    <Page Include="Annotatix.Module\UI\SharedStyles.xaml" SubType="Designer" Generator="MSBuild:Compile" />
+  </ItemGroup>
+
 </Project>

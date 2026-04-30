@@ -23,10 +23,38 @@ namespace Annotatix.Module
 
         public Window CreatePanel(object[] parameters)
         {
-            // Annotatix module doesn't need a panel - it uses ribbon buttons directly
-            // This method is required by IModule but returns null
-            DebugLogger.Log("[ANNOTATIX-MODULE] CreatePanel called - Annotatix uses ribbon buttons directly");
-            return null;
+            UIApplication uiApp = null;
+            UI.AnnotatixPanelHandler handler = null;
+            ExternalEvent extEvent = null;
+
+            if (parameters != null && parameters.Length > 0)
+            {
+                uiApp = parameters[0] as UIApplication;
+
+                if (parameters.Length >= 3)
+                {
+                    handler = parameters[1] as UI.AnnotatixPanelHandler;
+                    extEvent = parameters[2] as ExternalEvent;
+                }
+            }
+
+            DebugLogger.Log("[ANNOTATIX-MODULE] Creating AnnotatixPanel for Plugins Hub...");
+
+            var panel = new UI.AnnotatixPanel(uiApp, handler, extEvent);
+
+            var window = new Window
+            {
+                Content = panel,
+                Title = "Annotatix - Управление аннотациями и анализом",
+                Width = 500,
+                Height = 450,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                ResizeMode = ResizeMode.CanResize
+            };
+
+            DebugLogger.Log("[ANNOTATIX-MODULE] Panel window created successfully");
+
+            return window;
         }
     }
 }
