@@ -276,40 +276,63 @@ namespace dwg2rvt.Module.Core
         {
             if (obj is Line line)
             {
-                return new ComponentInfo
+                try
                 {
-                    Type = "Line",
-                    Center = (line.GetEndPoint(0) + line.GetEndPoint(1)) / 2.0
-                };
+                    if (!line.IsBound) return null;
+                    return new ComponentInfo
+                    {
+                        Type = "Line",
+                        Center = (line.GetEndPoint(0) + line.GetEndPoint(1)) / 2.0
+                    };
+                }
+                catch
+                {
+                    return null;
+                }
             }
             
             if (obj is Arc arc)
             {
-                return new ComponentInfo
+                try
                 {
-                    Type = "Arc",
-                    Center = arc.Center,
-                    ArcStartAngle = arc.GetEndParameter(0),
-                    ArcEndAngle = arc.GetEndParameter(1),
-                    ArcRadius = arc.Radius,
-                    ArcStartPoint = arc.GetEndPoint(0),
-                    ArcEndPoint = arc.GetEndPoint(1)
-                };
+                    if (!arc.IsBound) return null;
+                    return new ComponentInfo
+                    {
+                        Type = "Arc",
+                        Center = arc.Center,
+                        ArcStartAngle = arc.GetEndParameter(0),
+                        ArcEndAngle = arc.GetEndParameter(1),
+                        ArcRadius = arc.Radius,
+                        ArcStartPoint = arc.GetEndPoint(0),
+                        ArcEndPoint = arc.GetEndPoint(1)
+                    };
+                }
+                catch
+                {
+                    return null;
+                }
             }
             
             if (obj is PolyLine pline)
             {
-                var points = pline.GetCoordinates();
-                if (points.Count == 0) return null;
-                double minX = points.Min(p => p.X);
-                double minY = points.Min(p => p.Y);
-                double maxX = points.Max(p => p.X);
-                double maxY = points.Max(p => p.Y);
-                return new ComponentInfo
+                try
                 {
-                    Type = "PolyLine",
-                    Center = new XYZ((minX + maxX) / 2.0, (minY + maxY) / 2.0, 0)
-                };
+                    var points = pline.GetCoordinates();
+                    if (points.Count == 0) return null;
+                    double minX = points.Min(p => p.X);
+                    double minY = points.Min(p => p.Y);
+                    double maxX = points.Max(p => p.X);
+                    double maxY = points.Max(p => p.Y);
+                    return new ComponentInfo
+                    {
+                        Type = "PolyLine",
+                        Center = new XYZ((minX + maxX) / 2.0, (minY + maxY) / 2.0, 0)
+                    };
+                }
+                catch
+                {
+                    return null;
+                }
             }
             
             return null;

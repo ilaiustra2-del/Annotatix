@@ -439,6 +439,29 @@ namespace PluginsManager
                         catch { }
                     }
 
+                    // Raster Export button - экспорт вида с установкой границ обрезки
+                    PushButtonData rasterExportBtnData = new PushButtonData(
+                        "AnnotatixRasterExportRibbon",
+                        "Растр.\nэкспорт",
+                        assemblyPath,
+                        "PluginsManager.Commands.AnnotatixRasterExportRibbonCommand"
+                    );
+                    rasterExportBtnData.ToolTip =
+                        "Растровый экспорт текущего вида с установкой границ обрезки по габаритам модели.\n" +
+                        "Создает PNG с сеткой 3мм для последующего анализа свободных областей.";
+
+                    PushButton rasterExportBtn = panelAnnotatix.AddItem(rasterExportBtnData) as PushButton;
+
+                    // Set icon for Raster Export button
+                    if (File.Exists(annotatixIconPath))
+                    {
+                        try
+                        {
+                            rasterExportBtn.LargeImage = new BitmapImage(new Uri(annotatixIconPath));
+                        }
+                        catch { }
+                    }
+
                     Core.DebugLogger.Log("[APP] Annotatix ribbon panel created");
                 }
                 catch (Exception ex)
